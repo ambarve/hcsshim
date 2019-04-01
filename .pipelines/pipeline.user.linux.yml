@@ -1,0 +1,32 @@
+environment:
+  host:
+    os: 'linux'
+    flavor: 'ubuntu'
+    version: '16.04'
+  runtime:
+    provider: 'appcontainer'
+    image: 'cdpxlinux.azurecr.io/user/container-plat/golang:1.11.5'
+    source_mode: 'link'
+
+version:
+  system: 'custom'
+
+versioning:
+  commands:
+    - !!defaultcommand
+      name: 'version'
+      command: 'version.sh'
+
+build:
+  commands:
+    - !!buildcommand
+      name: 'build'
+      command: 'build.sh'
+      artifacts:
+        - include:
+          - 'runhcs.exe'
+          - 'tar2ext4.exe'
+          - 'containerd-shim-runhcs-v1.exe'
+          - 'zapdir.exe'
+          - 'grantvmgroupaccess.exe'
+          - 'cri-containerd.test.exe'
