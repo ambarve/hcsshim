@@ -19,7 +19,7 @@ static_analysis_options:
           - '*'
 
 signing_options:
-  profile: 'internal_azure_service'
+  profile: 'external_distribution'
 
 version:
   system: 'custom'
