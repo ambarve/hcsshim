@@ -128,6 +128,9 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 						options.ShareRead = true
 						options.ForceLevelIIOplocks = true
 					}
+					if coi.HostingSystem.DevicesPhysicallyBacked() {
+						options.NoDirectmap = true
+					}
 					share, err := coi.HostingSystem.AddVSMB(ctx, mount.Source, "", options)
 					if err != nil {
 						return fmt.Errorf("failed to add VSMB share to utility VM for mount %+v: %s", mount, err)
@@ -138,5 +141,18 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 		}
 	}
 
+	if cs, ok := coi.Spec.Windows.CredentialSpec.(string); ok {
+		// Only need to create a CCG instance for v2 containers
+		if schemaversion.IsV21(coi.actualSchemaVersion) {
+			hypervisorIsolated := coi.HostingSystem != nil
+			ccgState, ccgInstance, err := CreateCredentialGuard(ctx, coi.actualID, cs, hypervisorIsolated)
+			if err != nil {
+				return err
+			}
+			coi.ccgState = ccgState
+			r.resources = append(r.resources, ccgInstance)
+			//TODO dcantah: If/when dynamic service table entries is supported register the RpcEndpoint with hvsocket here
+		}
+	}
 	return nil
 }

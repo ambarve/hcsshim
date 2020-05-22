@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/sirupsen/logrus"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
@@ -63,6 +62,8 @@ func runContainerLifetime(t *testing.T, client runtime.RuntimeServiceClient, ctx
 }
 
 func Test_RotateLogs_LCOW(t *testing.T) {
+	requireFeatures(t, featureLCOW)
+
 	image := "alpine:latest"
 	dir, err := ioutil.TempDir("", "")
 	if err != nil {
@@ -140,6 +141,8 @@ func Test_RotateLogs_LCOW(t *testing.T) {
 }
 
 func Test_RunContainer_Events_LCOW(t *testing.T) {
+	requireFeatures(t, featureLCOW)
+
 	pullRequiredLcowImages(t, []string{imageLcowK8sPause, imageLcowAlpine})
 	client := newTestRuntimeClient(t)
 
@@ -217,99 +220,9 @@ func Test_RunContainer_Events_LCOW(t *testing.T) {
 	}
 }
 
-func Test_RunContainer_VirtualDevice_GPU_LCOW(t *testing.T) {
-	if osversion.Get().Build < 19566 {
-		t.Skip("Requires build +19566")
-	}
-
-	testDeviceInstanceID, err := findTestNvidiaGPUDevice()
-	if err != nil {
-		t.Skipf("skipping test, failed to find assignable nvidia gpu on host with: %v", err)
-	}
-	if testDeviceInstanceID == "" {
-		t.Skipf("skipping test, host has no assignable nvidia gpu devices")
-	}
-
-	pullRequiredLcowImages(t, []string{imageLcowK8sPause, imageLcowAlpine})
-	client := newTestRuntimeClient(t)
-
-	podctx := context.Background()
-	sandboxRequest := &runtime.RunPodSandboxRequest{
-		Config: &runtime.PodSandboxConfig{
-			Metadata: &runtime.PodSandboxMetadata{
-				Name:      t.Name(),
-				Namespace: testNamespace,
-			},
-			Annotations: map[string]string{
-				"io.microsoft.virtualmachine.lcow.kerneldirectboot":                  "false",
-				"io.microsoft.virtualmachine.computetopology.memory.allowovercommit": "false",
-				"io.microsoft.virtualmachine.lcow.preferredrootfstype":               "initrd",
-				"io.microsoft.virtualmachine.devices.virtualpmem.maximumcount":       "0",
-				"io.microsoft.virtualmachine.lcow.vpcienabled":                       "true",
-				// we believe this is a sufficiently large high MMIO space amount for this test.
-				// if a given gpu device needs more, this test will fail to create the container
-				// and may hang.
-				"io.microsoft.virtualmachine.computetopology.memory.highmmiogapinmb": "64000",
-				"io.microsoft.virtualmachine.lcow.bootfilesrootpath":                 testGPUBootFiles,
-			},
-		},
-		RuntimeHandler: lcowRuntimeHandler,
-	}
-
-	podID := runPodSandbox(t, client, podctx, sandboxRequest)
-	defer removePodSandbox(t, client, podctx, podID)
-	defer stopPodSandbox(t, client, podctx, podID)
-
-	device := &runtime.Device{
-		HostPath: "gpu://" + testDeviceInstanceID,
-	}
-
-	containerRequest := &runtime.CreateContainerRequest{
-		Config: &runtime.ContainerConfig{
-			Metadata: &runtime.ContainerMetadata{
-				Name: t.Name() + "-Container",
-			},
-			Image: &runtime.ImageSpec{
-				Image: imageLcowAlpine,
-			},
-			Command: []string{
-				"top",
-			},
-			Devices: []*runtime.Device{
-				device,
-			},
-			Linux: &runtime.LinuxContainerConfig{},
-			Annotations: map[string]string{
-				"io.microsoft.container.gpu.capabilities": "utility",
-			},
-		},
-		PodSandboxId:  podID,
-		SandboxConfig: sandboxRequest.Config,
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	containerID := createContainer(t, client, ctx, containerRequest)
-	defer removeContainer(t, client, ctx, containerID)
-	startContainer(t, client, ctx, containerID)
-	defer stopContainer(t, client, ctx, containerID)
-
-	cmd := []string{"ls", "/proc/driver/nvidia/gpus"}
-
-	containerExecReq := &runtime.ExecSyncRequest{
-		ContainerId: containerID,
-		Cmd:         cmd,
-		Timeout:     20,
-	}
-	response := execSync(t, client, ctx, containerExecReq)
-	if len(response.Stderr) != 0 {
-		t.Fatalf("expected to see no error, instead saw %s", string(response.Stderr))
-	}
-	if len(response.Stdout) == 0 {
-		t.Fatal("expected to see GPU device on container, not present")
-	}
-}
-
 func Test_RunContainer_ForksThenExits_ShowsAsExited_LCOW(t *testing.T) {
+	requireFeatures(t, featureLCOW)
+
 	pullRequiredLcowImages(t, []string{imageLcowK8sPause, imageLcowAlpine})
 	client := newTestRuntimeClient(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -367,6 +280,8 @@ func Test_RunContainer_ForksThenExits_ShowsAsExited_LCOW(t *testing.T) {
 }
 
 func Test_RunContainer_ZeroVPMEM_LCOW(t *testing.T) {
+	requireFeatures(t, featureLCOW)
+
 	pullRequiredLcowImages(t, []string{imageLcowK8sPause, imageLcowAlpine})
 
 	client := newTestRuntimeClient(t)
@@ -409,4 +324,205 @@ func Test_RunContainer_ZeroVPMEM_LCOW(t *testing.T) {
 
 	containerID := createContainer(t, client, ctx, request)
 	runContainerLifetime(t, client, ctx, containerID)
+}
+
+func Test_RunContainer_ZeroVPMEM_Multiple_LCOW(t *testing.T) {
+	requireFeatures(t, featureLCOW)
+
+	pullRequiredLcowImages(t, []string{imageLcowK8sPause, imageLcowAlpine})
+
+	client := newTestRuntimeClient(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sandboxRequest := &runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Metadata: &runtime.PodSandboxMetadata{
+				Name:      t.Name() + "-Sandbox",
+				Namespace: testNamespace,
+			},
+			Annotations: map[string]string{
+				"io.microsoft.virtualmachine.lcow.preferredrootfstype":         "initrd",
+				"io.microsoft.virtualmachine.devices.virtualpmem.maximumcount": "0",
+			},
+		},
+		RuntimeHandler: lcowRuntimeHandler,
+	}
+
+	podID := runPodSandbox(t, client, ctx, sandboxRequest)
+	defer removePodSandbox(t, client, ctx, podID)
+	defer stopPodSandbox(t, client, ctx, podID)
+
+	request := &runtime.CreateContainerRequest{
+		PodSandboxId: podID,
+		Config: &runtime.ContainerConfig{
+			Metadata: &runtime.ContainerMetadata{
+				Name: "",
+			},
+			Image: &runtime.ImageSpec{
+				Image: imageLcowAlpine,
+			},
+			Command: []string{
+				"top",
+			},
+		},
+		SandboxConfig: sandboxRequest.Config,
+	}
+
+	request.Config.Metadata.Name = "Container-1"
+	containerIDOne := createContainer(t, client, ctx, request)
+	defer removeContainer(t, client, ctx, containerIDOne)
+	startContainer(t, client, ctx, containerIDOne)
+	defer stopContainer(t, client, ctx, containerIDOne)
+
+	request.Config.Metadata.Name = "Container-2"
+	containerIDTwo := createContainer(t, client, ctx, request)
+	defer removeContainer(t, client, ctx, containerIDTwo)
+	startContainer(t, client, ctx, containerIDTwo)
+	defer stopContainer(t, client, ctx, containerIDTwo)
+}
+
+func Test_RunContainer_GMSA_WCOW_Process(t *testing.T) {
+	requireFeatures(t, featureWCOWProcess, featureGMSA)
+
+	credSpec := gmsaSetup(t)
+	pullRequiredImages(t, []string{imageWindowsNanoserver})
+	client := newTestRuntimeClient(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sandboxRequest := &runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Metadata: &runtime.PodSandboxMetadata{
+				Name:      t.Name() + "-Sandbox",
+				Namespace: testNamespace,
+			},
+		},
+		RuntimeHandler: wcowProcessRuntimeHandler,
+	}
+
+	podID := runPodSandbox(t, client, ctx, sandboxRequest)
+	defer removePodSandbox(t, client, ctx, podID)
+	defer stopPodSandbox(t, client, ctx, podID)
+
+	request := &runtime.CreateContainerRequest{
+		PodSandboxId: podID,
+		Config: &runtime.ContainerConfig{
+			Metadata: &runtime.ContainerMetadata{
+				Name: t.Name() + "-Container",
+			},
+			Image: &runtime.ImageSpec{
+				Image: imageWindowsNanoserver,
+			},
+			Command: []string{
+				"cmd",
+				"/c",
+				"ping",
+				"-t",
+				"127.0.0.1",
+			},
+			Windows: &runtime.WindowsContainerConfig{
+				SecurityContext: &runtime.WindowsContainerSecurityContext{
+					CredentialSpec: credSpec,
+				},
+			},
+		},
+		SandboxConfig: sandboxRequest.Config,
+	}
+
+	containerID := createContainer(t, client, ctx, request)
+	defer removeContainer(t, client, ctx, containerID)
+	startContainer(t, client, ctx, containerID)
+	defer stopContainer(t, client, ctx, containerID)
+
+	// No klist and no powershell available
+	cmd := []string{"cmd", "/c", "set", "USERDNSDOMAIN"}
+	containerExecReq := &runtime.ExecSyncRequest{
+		ContainerId: containerID,
+		Cmd:         cmd,
+		Timeout:     20,
+	}
+	r := execSync(t, client, ctx, containerExecReq)
+	if r.ExitCode != 0 {
+		t.Fatalf("failed with exit code %d running 'set USERDNSDOMAIN': %s", r.ExitCode, string(r.Stderr))
+	}
+	// Check for USERDNSDOMAIN environment variable. This acts as a way tell if a
+	// user is joined to an Active Directory Domain and is successfully
+	// authenticated as a domain identity.
+	if !strings.Contains(string(r.Stdout), "USERDNSDOMAIN") {
+		t.Fatalf("expected to see USERDNSDOMAIN entry")
+	}
+}
+
+func Test_RunContainer_GMSA_WCOW_Hypervisor(t *testing.T) {
+	t.Skip("GMSA is not supported for Hyper-V isolated containers")
+	requireFeatures(t, featureWCOWHypervisor, featureGMSA)
+
+	credSpec := gmsaSetup(t)
+	pullRequiredImages(t, []string{imageWindowsNanoserver})
+	client := newTestRuntimeClient(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sandboxRequest := &runtime.RunPodSandboxRequest{
+		Config: &runtime.PodSandboxConfig{
+			Metadata: &runtime.PodSandboxMetadata{
+				Name:      t.Name() + "-Sandbox",
+				Namespace: testNamespace,
+			},
+		},
+		RuntimeHandler: wcowHypervisorRuntimeHandler,
+	}
+
+	podID := runPodSandbox(t, client, ctx, sandboxRequest)
+	defer removePodSandbox(t, client, ctx, podID)
+	defer stopPodSandbox(t, client, ctx, podID)
+
+	request := &runtime.CreateContainerRequest{
+		PodSandboxId: podID,
+		Config: &runtime.ContainerConfig{
+			Metadata: &runtime.ContainerMetadata{
+				Name: t.Name() + "-Container",
+			},
+			Image: &runtime.ImageSpec{
+				Image: imageWindowsNanoserver,
+			},
+			Command: []string{
+				"cmd",
+				"/c",
+				"ping",
+				"-t",
+				"127.0.0.1",
+			},
+			Windows: &runtime.WindowsContainerConfig{
+				SecurityContext: &runtime.WindowsContainerSecurityContext{
+					CredentialSpec: credSpec,
+				},
+			},
+		},
+		SandboxConfig: sandboxRequest.Config,
+	}
+
+	containerID := createContainer(t, client, ctx, request)
+	defer removeContainer(t, client, ctx, containerID)
+	startContainer(t, client, ctx, containerID)
+	defer stopContainer(t, client, ctx, containerID)
+
+	// No klist and no powershell available
+	cmd := []string{"cmd", "/c", "set", "USERDNSDOMAIN"}
+	containerExecReq := &runtime.ExecSyncRequest{
+		ContainerId: containerID,
+		Cmd:         cmd,
+		Timeout:     20,
+	}
+	r := execSync(t, client, ctx, containerExecReq)
+	if r.ExitCode != 0 {
+		t.Fatalf("failed with exit code %d running 'set USERDNSDOMAIN': %s", r.ExitCode, string(r.Stderr))
+	}
+	// Check for USERDNSDOMAIN environment variable. This acts as a way tell if a
+	// user is joined to an Active Directory Domain and is successfully
+	// authenticated as a domain identity.
+	if !strings.Contains(string(r.Stdout), "USERDNSDOMAIN") {
+		t.Fatalf("expected to see USERDNSDOMAIN entry")
+	}
 }

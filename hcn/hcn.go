@@ -198,6 +198,24 @@ func SessionAffinitySupported() error {
 	return platformDoesNotSupportError("Session Affinity")
 }
 
+// IPv6DualStackSupported returns an error if the HCN version does not support IPv6DualStack.
+func IPv6DualStackSupported() error {
+	supported := GetSupportedFeatures()
+	if supported.IPv6DualStack {
+		return nil
+	}
+	return platformDoesNotSupportError("IPv6 DualStack")
+}
+
+// SetPolicySupported returns an error if the HCN version does not support SetPolicy.
+func SetPolicySupported() error {
+	supported := GetSupportedFeatures()
+	if supported.SetPolicy {
+		return nil
+	}
+	return platformDoesNotSupportError("SetPolicy")
+}
+
 // RequestType are the different operations performed to settings.
 // Used to update the settings of Endpoint/Namespace objects.
 type RequestType string
