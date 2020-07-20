@@ -20,6 +20,7 @@ import "github.com/Microsoft/go-winio/pkg/guid"
 //sys prepareLayer(info *driverInfo, id string, descriptors []WC_LAYER_DESCRIPTOR) (hr error) = vmcompute.PrepareLayer?
 //sys unprepareLayer(info *driverInfo, id string) (hr error) = vmcompute.UnprepareLayer?
 //sys processBaseImage(path string) (hr error) = vmcompute.ProcessBaseImage?
+//sys processImageEx(path string, imageType uint32, vhdSizeGB uint64, processImageOptions uint32, outputPath string) (hr error) = vmcompute.ProcessImageEx?
 //sys processUtilityImage(path string) (hr error) = vmcompute.ProcessUtilityImage?
 
 //sys grantVmAccess(vmid string, filepath string) (hr error) = vmcompute.GrantVmAccess?

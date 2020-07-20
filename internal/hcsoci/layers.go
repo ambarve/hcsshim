@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"path/filepath"
 
+	cim "github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -60,6 +62,29 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		}
 		path := layerFolders[len(layerFolders)-1]
 		rest := layerFolders[:len(layerFolders)-1]
+
+		// mount the first (topmost) parent layer.
+		// in case of cim layers we only need to mount the topmost layer.
+		cimlayers := []string{}
+		for _, parentLayer := range rest[:1] {
+			cimpath := cim.GetCimPath(parentLayer)
+			layerGUID, err := cim.AssignGUIDToCim(cimpath)
+			if err != nil {
+				return "", fmt.Errorf("error creating guid: %s", err)
+			}
+			err = cim.Mount(cimpath, layerGUID)
+			if err != nil {
+				return "", fmt.Errorf("error mounting cim at %s: %s", cimpath, err)
+			}
+			defer func() {
+				if err != nil {
+					cim.Unmount(layerGUID)
+				}
+			}()
+			mylogger.LogFmt("parent layer %s is mounted at cim: %s\n", parentLayer, fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID))
+			cimlayers = append(cimlayers, fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID))
+		}
+
 		if err := wclayer.ActivateLayer(ctx, path); err != nil {
 			return "", err
 		}
@@ -69,7 +94,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 			}
 		}()
 
-		if err := wclayer.PrepareLayer(ctx, path, rest); err != nil {
+		if err := wclayer.PrepareLayer(ctx, path, cimlayers); err != nil {
 			return "", err
 		}
 		defer func() {
@@ -82,6 +107,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		if err != nil {
 			return "", err
 		}
+		mylogger.LogFmt("mount path: %v\n", mountPath)
 		return mountPath, nil
 	}
 
@@ -227,6 +253,18 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 		path := layerFolders[len(layerFolders)-1]
 		if err := wclayer.UnprepareLayer(ctx, path); err != nil {
 			return err
+		}
+		mylogger.LogFmt("unmount container layers, path: %v\n", path)
+		for _, parentLayer := range layerFolders[:len(layerFolders)-1] {
+			cimpath := cim.GetCimPath(parentLayer)
+			layerGUID, err := cim.AssignGUIDToCim(cimpath)
+			if err != nil {
+				return fmt.Errorf("error creating guid: %s", err)
+			}
+			err = cim.Unmount(layerGUID)
+			if err != nil {
+				return fmt.Errorf("error mounting cim at %s: %s", cimpath, err)
+			}
 		}
 		return wclayer.DeactivateLayer(ctx, path)
 	}

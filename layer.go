@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
 )
 
@@ -102,6 +103,15 @@ type LayerWriter = wclayer.LayerWriter
 
 func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (LayerWriter, error) {
 	return wclayer.NewLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+
+}
+
+func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cim.CimLayerWriter, error) {
+	// if osversion.Get().Build < osversion.VB {
+	// 	return nil, fmt.Errorf("cim layers are not available in this build. Minimum build version required %v, current version is %v", osversion.VB, osversion.Get().Build)
+	// } else {
+	return cim.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+	// }
 }
 
 type WC_LAYER_DESCRIPTOR = wclayer.WC_LAYER_DESCRIPTOR

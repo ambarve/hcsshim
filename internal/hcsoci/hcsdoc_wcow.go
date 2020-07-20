@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Microsoft/hcsshim/internal/cim"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/processorinfo"
 
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -218,14 +220,19 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 
 	if coi.isV2Argon() || coi.isV1Argon() { // Argon v1 or v2
 		for _, layerPath := range coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1] {
-			layerID, err := wclayer.LayerID(ctx, layerPath)
+			layerGUID, err := cim.AssignGUIDToCim(cim.GetCimPath(layerPath))
+			if err != nil {
+				return nil, nil, fmt.Errorf("error creating guid: %s", err)
+			}
+			layerID, err := wclayer.LayerID(ctx, fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID))
 			if err != nil {
 				return nil, nil, err
 			}
-			v1.Layers = append(v1.Layers, schema1.Layer{ID: layerID.String(), Path: layerPath})
-			v2Container.Storage.Layers = append(v2Container.Storage.Layers, hcsschema.Layer{Id: layerID.String(), Path: layerPath})
+			v1.Layers = append(v1.Layers, schema1.Layer{ID: layerID.String(), Path: fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID)})
+			v2Container.Storage.Layers = append(v2Container.Storage.Layers, hcsschema.Layer{Id: layerID.String(), Path: fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID)})
 		}
 	}
+	mylogger.LogFmt("v2 layers %v\n", v2Container.Storage.Layers)
 
 	// Add the mounts as mapped directories or mapped pipes
 	// TODO: Mapped pipes to add in v2 schema.
@@ -288,6 +295,8 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 			return nil, nil, err
 		}
 	}
+
+	mylogger.LogStruct(v2Container)
 
 	return v1, v2Container, nil
 }

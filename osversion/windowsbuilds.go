@@ -24,4 +24,8 @@ const (
 	// V19H1 (version 1903) corresponds to Windows Server 1903 (semi-annual
 	// channel).
 	V19H1 = 18362
+
+	// VB (version 19028) corresponds to Windows Server 2004 release
+	// CimFS support is available starting from this version
+	VB = 19028
 )

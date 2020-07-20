@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
@@ -35,9 +36,12 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 		}
 	}
 
+	mylogger.LogFmt("allocate windows resources, layers: %v", coi.Spec.Windows.LayerFolders)
+
 	// Create sandbox.vhdx if it doesn't exist in the scratch folder. It's called sandbox.vhdx
 	// rather than scratch.vhdx as in the v1 schema, it's hard-coded in HCS.
 	if _, err := os.Stat(filepath.Join(scratchFolder, "sandbox.vhdx")); os.IsNotExist(err) {
+		mylogger.LogFmt("creating scratch layer at :%s\n", scratchFolder)
 		if err := wclayer.CreateScratchLayer(ctx, scratchFolder, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1]); err != nil {
 			return fmt.Errorf("failed to CreateSandboxLayer %s", err)
 		}
@@ -49,7 +53,8 @@ func allocateWindowsResources(ctx context.Context, coi *createOptionsInternal, r
 
 	if coi.Spec.Root.Path == "" && (coi.HostingSystem != nil || coi.Spec.Windows.HyperV == nil) {
 		log.G(ctx).Debug("hcsshim::allocateWindowsResources mounting storage")
-		containerRootPath, err := MountContainerLayers(ctx, coi.Spec.Windows.LayerFolders, r.containerRootInUVM, coi.HostingSystem)
+		containerRootPath, err :=
+			MountContainerLayers(ctx, coi.Spec.Windows.LayerFolders, r.containerRootInUVM, coi.HostingSystem)
 		if err != nil {
 			return fmt.Errorf("failed to mount container storage: %s", err)
 		}

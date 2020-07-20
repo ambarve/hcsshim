@@ -57,6 +57,7 @@ var (
 	procPrepareLayer        = modvmcompute.NewProc("PrepareLayer")
 	procUnprepareLayer      = modvmcompute.NewProc("UnprepareLayer")
 	procProcessBaseImage    = modvmcompute.NewProc("ProcessBaseImage")
+	procProcessImageEx      = modvmcompute.NewProc("ProcessImageEx")
 	procProcessUtilityImage = modvmcompute.NewProc("ProcessUtilityImage")
 	procGrantVmAccess       = modvmcompute.NewProc("GrantVmAccess")
 	procOpenVirtualDisk     = modvirtdisk.NewProc("OpenVirtualDisk")
@@ -454,6 +455,34 @@ func _processBaseImage(path *uint16) (hr error) {
 		return
 	}
 	r0, _, _ := syscall.Syscall(procProcessBaseImage.Addr(), 1, uintptr(unsafe.Pointer(path)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func processImageEx(path string, imageType uint32, vhdSizeGB uint64, processImageOptions uint32, outputPath string) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(outputPath)
+	if hr != nil {
+		return
+	}
+	return _processImageEx(_p0, imageType, vhdSizeGB, processImageOptions, _p1)
+}
+
+func _processImageEx(path *uint16, imageType uint32, vhdSizeGB uint64, processImageOptions uint32, outputPath *uint16) (hr error) {
+	if hr = procProcessImageEx.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall6(procProcessImageEx.Addr(), 5, uintptr(unsafe.Pointer(path)), uintptr(imageType), uintptr(vhdSizeGB), uintptr(processImageOptions), uintptr(unsafe.Pointer(outputPath)), 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
 			r0 &= 0xffff
