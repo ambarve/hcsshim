@@ -60,7 +60,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	}
 
 	span.AddAttributes(trace.StringAttribute(logfields.UVMID, opts.ID))
-	log.G(ctx).WithField("options", fmt.Sprintf("%+v", opts)).Debug("uvm::CreateLCOW options")
+	log.G(ctx).WithField("options", fmt.Sprintf("%+v", opts)).Debug("uvm::CreateWCOW options")
 
 	uvm := &UtilityVM{
 		id:                      opts.ID,
@@ -124,20 +124,16 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	// Align the requested memory size.
 	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
+	// UVM rootfs share is readonly.
+	vsmbOpts := uvm.DefaultVSMBOptions(true)
+	vsmbOpts.TakeBackupPrivilege = true
 	virtualSMB := &hcsschema.VirtualSmb{
 		DirectFileMappingInMB: 1024, // Sensible default, but could be a tuning parameter somewhere
 		Shares: []hcsschema.VirtualSmbShare{
 			{
-				Name: "os",
-				Path: filepath.Join(uvmFolder, `UtilityVM\Files`),
-				Options: &hcsschema.VirtualSmbShareOptions{
-					ReadOnly:            true,
-					PseudoOplocks:       true,
-					TakeBackupPrivilege: true,
-					CacheIo:             true,
-					ShareRead:           true,
-					NoDirectmap:         uvm.devicesPhysicallyBacked,
-				},
+				Name:    "os",
+				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
+				Options: vsmbOpts,
 			},
 		},
 	}
@@ -221,10 +217,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 
 	err = uvm.create(ctx, fullDoc)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while creating the compute system: %s", err)
 	}
 
 	if opts.ExternalGuestConnection {
+		log.G(ctx).WithField("vmID", uvm.runtimeID).Debug("Using external GCS bridge")
 		l, err := winio.ListenHvsock(&winio.HvsockAddr{
 			VMID:      uvm.runtimeID,
 			ServiceID: gcs.WindowsGcsHvsockServiceID,
