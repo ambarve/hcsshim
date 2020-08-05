@@ -49,8 +49,7 @@ var (
 	}
 	// HNS 9.3 through 10.0 (not included) and, 10.4+ allow for HNS ACL Policies to support protocol 252 for VXLAN
 	AclSupportForProtocol252Version = VersionRanges{
-		VersionRange{MinVersion: Version{Major: 9, Minor: 3}, MaxVersion: Version{Major: 9, Minor: math.MaxInt32}},
-		VersionRange{MinVersion: Version{Major: 10, Minor: 4}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}},
+		VersionRange{MinVersion: Version{Major: 11, Minor: 0}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}},
 	}
 	// HNS 12.0 allows for session affinity for loadbalancing
 	SessionAffinityVersion = VersionRanges{VersionRange{MinVersion: Version{Major: 12, Minor: 0}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}}}
@@ -63,6 +62,9 @@ var (
 	SetPolicyVersion = VersionRanges{VersionRange{MinVersion: Version{Major: 13, Minor: 0}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}}}
 	// HNS 10.3 allows for VXLAN ports
 	VxlanPortVersion = VersionRanges{VersionRange{MinVersion: Version{Major: 10, Minor: 3}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}}}
+
+	//HNS 13.1 allows for L4Proxy Policy support
+	L4ProxyPolicyVersion = VersionRanges{VersionRange{MinVersion: Version{Major: 13, Minor: 1}, MaxVersion: Version{Major: math.MaxInt32, Minor: math.MaxInt32}}}
 )
 
 // GetGlobals returns the global properties of the HCN Service.
