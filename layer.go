@@ -3,10 +3,13 @@ package hcsshim
 import (
 	"context"
 	"crypto/sha1"
+	"fmt"
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	"github.com/Microsoft/hcsshim/osversion"
 )
 
 func layerPath(info *DriverInfo, id string) string {
@@ -30,8 +33,13 @@ func CreateScratchLayer(info DriverInfo, layerId, parentId string, parentLayerPa
 func DeactivateLayer(info DriverInfo, id string) error {
 	return wclayer.DeactivateLayer(context.Background(), layerPath(&info, id))
 }
+
 func DestroyLayer(info DriverInfo, id string) error {
-	return wclayer.DestroyLayer(context.Background(), layerPath(&info, id))
+	if osversion.Build() >= osversion.IRON_BUILD {
+		return cim.DestroyCimLayer(context.Background(), layerPath(&info, id))
+	} else {
+		return wclayer.DestroyLayer(context.Background(), layerPath(&info, id))
+	}
 }
 
 // New clients should use ExpandScratchSize instead. Kept in to preserve API compatibility.
@@ -102,6 +110,15 @@ type LayerWriter = wclayer.LayerWriter
 
 func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (LayerWriter, error) {
 	return wclayer.NewLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+
+}
+
+func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cim.CimLayerWriter, error) {
+	if osversion.Build() >= osversion.IRON_BUILD {
+		return cim.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+	} else {
+		return nil, fmt.Errorf("cim layers needs builds %d and above, current build: %d", osversion.IRON_BUILD, osversion.Build())
+	}
 }
 
 type WC_LAYER_DESCRIPTOR = wclayer.WC_LAYER_DESCRIPTOR

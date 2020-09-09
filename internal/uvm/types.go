@@ -116,4 +116,10 @@ type UtilityVM struct {
 
 	// cpuGroupID is the ID of the cpugroup on the host that this UVM is assigned to
 	cpuGroupID string
+
+	// cim layer on which this uvm will boot
+	cimPath string
+
+	// cim layers which are mounted inside this uvm.
+	cimMounts map[string]*cimInfo
 }

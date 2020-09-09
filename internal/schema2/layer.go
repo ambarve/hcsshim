@@ -9,6 +9,8 @@
 
 package hcsschema
 
+import "github.com/Microsoft/go-winio/pkg/guid"
+
 type Layer struct {
 	Id string `json:"Id,omitempty"`
 
@@ -18,4 +20,27 @@ type Layer struct {
 
 	//  Unspecified defaults to Enabled
 	Cache string `json:"Cache,omitempty"`
+}
+
+type OsLayerType string
+
+const (
+	ContainerLayer OsLayerType = "Container"
+	VmLayer                    = "Vm"
+)
+
+type OsLayerOptions struct {
+	Type_ OsLayerType `json:"Type,omitempty"`
+
+	DisableCiCacheOptimization bool `json:"DisableCiCacheOptimization,omitempty"`
+
+	IsDynamic bool `json:"IsDynamic,omitempty"`
+
+	SkipSandboxPreExpansion bool `json:"SkipSandboxPreExpansion,omitempty"`
+
+	FileSystemLayers []Layer `json:"FileSystemLayers,omitempty"`
+
+	SandboxVhdPartitionId guid.GUID `json:"SandboxVhdPartitionId,omitempty"`
+
+	SkipUpdateBcdForBoot bool `json:"SkipUpdateBcdForBoot,omitempty"`
 }

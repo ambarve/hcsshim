@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	uvmpkg "github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
@@ -70,6 +72,23 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		}
 		path := layerFolders[len(layerFolders)-1]
 		rest := layerFolders[:len(layerFolders)-1]
+		if osversion.Build() >= osversion.IRON_BUILD {
+			// mount the topmost parent cim layer
+			// TODO(ambarve): Will this fail if we receive a set of layers that
+			// are not all part of the same forked cim chain?
+			// TODO(ambarve): is the rest[0] topmost of rest[:len - 1] topmost?
+			cimPath := cim.GetCimPathFromLayer(rest[0])
+			cimMountPath, err2 := cim.Mount(cimPath)
+			if err2 != nil {
+				return "", err2
+			}
+			defer func() {
+				if err != nil {
+					cim.UnMount(cimPath)
+				}
+			}()
+			rest = []string{cimMountPath}
+		}
 		if err := wclayer.ActivateLayer(ctx, path); err != nil {
 			return "", err
 		}
@@ -105,11 +124,19 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 	defer func() {
 		if err != nil {
 			if uvm.OS() == "windows" {
-				for _, l := range layersAdded {
-					if err := uvm.RemoveVSMB(ctx, l, true); err != nil {
-						log.G(ctx).WithError(err).Warn("failed to remove wcow layer on cleanup")
+				if osversion.Build() >= osversion.IRON_BUILD && len(layersAdded) > 0 {
+					cimPath := cim.GetCimPathFromLayer(layersAdded[0])
+					if err := uvm.UnMountFromUVM(ctx, cimPath); err != nil {
+						log.G(ctx).WithError(err).Warn("failed to unmount cim from uvm on cleanup")
+					}
+				} else {
+					for _, l := range layersAdded {
+						if err := uvm.RemoveVSMB(ctx, l, true); err != nil {
+							log.G(ctx).WithError(err).Warn("failed to remove wcow layer on cleanup")
+						}
 					}
 				}
+
 			} else {
 				for _, l := range layersAdded {
 					if err := removeLCOWLayer(ctx, uvm, l); err != nil {
@@ -120,26 +147,34 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		}
 	}()
 
-	for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-		log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
-		if uvm.OS() == "windows" {
-			options := uvm.DefaultVSMBOptions(true)
-			options.TakeBackupPrivilege = true
-			if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
-				return "", fmt.Errorf("failed to add VSMB layer: %s", err)
+	if osversion.Build() >= osversion.IRON_BUILD && uvm.OS() == "windows" {
+		_, err := uvm.MountInUVM(ctx, cim.GetCimPathFromLayer(layerFolders[0]))
+		if err != nil {
+			return "", err
+		}
+		layersAdded = append(layersAdded, layerFolders[0])
+	} else {
+		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+			log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
+			if uvm.OS() == "windows" {
+				options := uvm.DefaultVSMBOptions(true)
+				options.TakeBackupPrivilege = true
+				if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
+					return "", fmt.Errorf("failed to add VSMB layer: %s", err)
+				}
+				layersAdded = append(layersAdded, layerPath)
+			} else {
+				var (
+					layerPath = filepath.Join(layerPath, "layer.vhd")
+					uvmPath   string
+				)
+				uvmPath, err = addLCOWLayer(ctx, uvm, layerPath)
+				if err != nil {
+					return "", fmt.Errorf("failed to add LCOW layer: %s", err)
+				}
+				layersAdded = append(layersAdded, layerPath)
+				lcowUvmLayerPaths = append(lcowUvmLayerPaths, uvmPath)
 			}
-			layersAdded = append(layersAdded, layerPath)
-		} else {
-			var (
-				layerPath = filepath.Join(layerPath, "layer.vhd")
-				uvmPath   string
-			)
-			uvmPath, err = addLCOWLayer(ctx, uvm, layerPath)
-			if err != nil {
-				return "", fmt.Errorf("failed to add LCOW layer: %s", err)
-			}
-			layersAdded = append(layersAdded, layerPath)
-			lcowUvmLayerPaths = append(lcowUvmLayerPaths, uvmPath)
 		}
 	}
 
@@ -166,11 +201,19 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 
 	var rootfs string
 	if uvm.OS() == "windows" {
-		// 	Load the filter at the C:\s<ID> location calculated above. We pass into this request each of the
-		// 	read-only layer folders.
-		layers, err := GetHCSLayers(ctx, uvm, layersAdded)
-		if err != nil {
-			return "", err
+		// Load the filter at the C:\s<ID> location calculated above. We pass into this
+		// request each of the read-only layer folders.
+		var layers []hcsschema.Layer
+		if osversion.Build() >= osversion.IRON_BUILD {
+			layers, err = GetCimHCSLayer(ctx, uvm, cim.GetCimPathFromLayer(layerFolders[0]))
+			if err != nil {
+				return "", fmt.Errorf("failed to get hcs layer: %s", err)
+			}
+		} else {
+			layers, err = GetHCSLayers(ctx, uvm, layersAdded)
+			if err != nil {
+				return "", err
+			}
 		}
 		err = uvm.CombineLayersWCOW(ctx, layers, containerScratchPathInUVM)
 		rootfs = containerScratchPathInUVM
@@ -179,7 +222,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		err = uvm.CombineLayersLCOW(ctx, lcowUvmLayerPaths, containerScratchPathInUVM, rootfs)
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to combine layers: %s", err)
 	}
 	log.G(ctx).Debug("hcsshim::mountContainerLayers Succeeded")
 	return rootfs, nil
@@ -267,7 +310,17 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 		if err := wclayer.UnprepareLayer(ctx, path); err != nil {
 			return err
 		}
-		return wclayer.DeactivateLayer(ctx, path)
+		if err := wclayer.DeactivateLayer(ctx, path); err != nil {
+			return err
+		}
+
+		if osversion.Build() >= osversion.IRON_BUILD {
+			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+			if err := cim.UnMount(cimPath); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	// V2 Xenon
@@ -306,13 +359,25 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 	// only removed once the count drops to zero. This allows multiple containers
 	// to share layers.
 	if uvm.OS() == "windows" && (op&UnmountOperationVSMB) == UnmountOperationVSMB {
-		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-			if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
-				log.G(ctx).WithError(e).Warn("remove VSMB failed")
+		if osversion.Build() >= osversion.IRON_BUILD {
+			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+			if e := uvm.UnMountFromUVM(ctx, cimPath); e != nil {
+				log.G(ctx).WithError(e).Warn("failed to unmount cim from uvm on cleanup")
 				if retError == nil {
 					retError = e
 				} else {
 					retError = errors.Wrapf(retError, e.Error())
+				}
+			}
+		} else {
+			for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+				if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
+					log.G(ctx).WithError(e).Warn("remove VSMB failed")
+					if retError == nil {
+						retError = e
+					} else {
+						retError = errors.Wrapf(retError, e.Error())
+					}
 				}
 			}
 		}
@@ -351,6 +416,24 @@ func GetHCSLayers(ctx context.Context, vm *uvm.UtilityVM, paths []string) (layer
 		}
 		layers = append(layers, hcsschema.Layer{Id: layerID.String(), Path: uvmPath})
 	}
+	return layers, nil
+}
+
+// GetCimHCSLayer finds the uvm mount path of the given cim and returns a hcs schema v2 layer of it.
+// The cim must have already been mounted inside the uvm.
+func GetCimHCSLayer(ctx context.Context, vm *uvm.UtilityVM, cimPath string) (layers []hcsschema.Layer, err error) {
+	uvmPath, err := vm.GetCimUvmMountPathNt(cimPath)
+	if err != nil {
+		return nil, err
+	}
+	// Note: the LayerID is still calculated with the cim path.
+	// TODO(ambarve): There is some confusion with vsmb share ID and the layer ID
+	// that we pass here. Figure out the proper way.
+	layerID, err := wclayer.LayerID(ctx, cimPath)
+	if err != nil {
+		return nil, err
+	}
+	layers = append(layers, hcsschema.Layer{Id: layerID.String(), Path: uvmPath})
 	return layers, nil
 }
 
