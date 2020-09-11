@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	uvmpkg "github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
 )
 
@@ -69,6 +71,23 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		}
 		path := layerFolders[len(layerFolders)-1]
 		rest := layerFolders[:len(layerFolders)-1]
+		if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+			// mount the topmost parent cim layer
+			// TODO(ambarve): Will this fail if we receive a set of layers that
+			// are not all part of the same forked cim chain?
+			// TODO(ambarve): is the rest[0] topmost of rest[:len - 1] topmost?
+			cimPath := cim.GetCimPathFromLayer(rest[0])
+			cimMountPath, err2 := cim.Mount(cimPath)
+			if err2 != nil {
+				return "", err2
+			}
+			defer func() {
+				if err != nil {
+					cim.UnMount(cimPath)
+				}
+			}()
+			rest = []string{cimMountPath}
+		}
 		if err := wclayer.ActivateLayer(ctx, path); err != nil {
 			return "", err
 		}
@@ -237,7 +256,17 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 		if err := wclayer.UnprepareLayer(ctx, path); err != nil {
 			return err
 		}
-		return wclayer.DeactivateLayer(ctx, path)
+		if err := wclayer.DeactivateLayer(ctx, path); err != nil {
+			return err
+		}
+
+		if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+			if err := cim.UnMount(cimPath); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	// V2 Xenon

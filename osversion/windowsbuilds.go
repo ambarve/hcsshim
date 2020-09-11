@@ -32,4 +32,8 @@ const (
 	// V20H1 (version 2004) corresponds to Windows Server 2004 (semi-annual
 	// channel).
 	V20H1 = 19041
+
+	// minimum build required for cimfs
+	//TODO(ambarve): replace this with correct value before merging
+	MIN_CIMFS_BUILD = 0
 )

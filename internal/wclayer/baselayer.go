@@ -32,6 +32,19 @@ type dirInfo struct {
 	fileInfo winio.FileBasicInfo
 }
 
+const (
+	ImageTypeBase           = 0
+	ImageTypeBaseVmBootable = 1
+	ImageTypeBaseDynamic    = 2
+	ImageTypeUtility        = 3
+
+	ProcessImage_NoOptions                   = 0
+	ProcessImage_NoOptimizeCiCache           = 0x00000001
+	ProcessImage_SkipSandboxPreExpansion     = 0x00000002
+	ProcessImage_SkipSandboxDiffDiskCreation = 0x00000004
+	ProcessImage_ValidOptions                = 0x00000007
+)
+
 // reapplyDirectoryTimes reapplies directory modification, creation, etc. times
 // after processing of the directory tree has completed. The times are expected
 // to be ordered such that parent directories come before child directories.

@@ -212,7 +212,7 @@ func (c *cim) close() error {
 		return errors.New("invalid writer")
 	}
 	if err := c.commit(); err != nil {
-		return err
+		return &OpError{Cim: c.name, Op: "commit", Err: err}
 	}
 	if err := cimCloseImage(c.handle); err != nil {
 		return &OpError{Cim: c.name, Op: "close", Err: err}

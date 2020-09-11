@@ -37,8 +37,11 @@ func errnoErr(e syscall.Errno) error {
 }
 
 var (
-	modcimfs = windows.NewLazySystemDLL("cimfs.dll")
+	modcimfs  = windows.NewLazySystemDLL("cimfs.dll")
+	modoffreg = windows.NewLazySystemDLL("offreg.dll")
 
+	procCimMountImage            = modcimfs.NewProc("CimMountImage")
+	procCimDismountImage         = modcimfs.NewProc("CimDismountImage")
 	procCimCreateImage           = modcimfs.NewProc("CimCreateImage")
 	procCimCloseImage            = modcimfs.NewProc("CimCloseImage")
 	procCimCommitImage           = modcimfs.NewProc("CimCommitImage")
@@ -48,7 +51,47 @@ var (
 	procCimDeletePath            = modcimfs.NewProc("CimDeletePath")
 	procCimCreateHardLink        = modcimfs.NewProc("CimCreateHardLink")
 	procCimCreateAlternateStream = modcimfs.NewProc("CimCreateAlternateStream")
+	procORMergeHives             = modoffreg.NewProc("ORMergeHives")
+	procOROpenHive               = modoffreg.NewProc("OROpenHive")
+	procORCloseHive              = modoffreg.NewProc("ORCloseHive")
+	procORSaveHive               = modoffreg.NewProc("ORSaveHive")
 )
+
+func cimMountImage(imagePath string, fsName string, flags uint32, volumeID *g) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(fsName)
+	if hr != nil {
+		return
+	}
+	return _cimMountImage(_p0, _p1, flags, volumeID)
+}
+
+func _cimMountImage(imagePath *uint16, fsName *uint16, flags uint32, volumeID *g) (hr error) {
+	r0, _, _ := syscall.Syscall6(procCimMountImage.Addr(), 4, uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(fsName)), uintptr(flags), uintptr(unsafe.Pointer(volumeID)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func cimDismountImage(volumeID *g) (hr error) {
+	r0, _, _ := syscall.Syscall(procCimDismountImage.Addr(), 1, uintptr(unsafe.Pointer(volumeID)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
 
 func cimCreateImage(imagePath string, oldFSName *uint16, newFSName *uint16, cimFSHandle *fsHandle) (hr error) {
 	var _p0 *uint16
@@ -195,6 +238,60 @@ func _cimCreateAlternateStream(cimFSHandle fsHandle, path *uint16, size uint64, 
 			r0 &= 0xffff
 		}
 		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func orMergeHives(hiveHandles []orHKey, result *orHKey) (win32err error) {
+	var _p0 *orHKey
+	if len(hiveHandles) > 0 {
+		_p0 = &hiveHandles[0]
+	}
+	r0, _, _ := syscall.Syscall(procORMergeHives.Addr(), 3, uintptr(unsafe.Pointer(_p0)), uintptr(len(hiveHandles)), uintptr(unsafe.Pointer(result)))
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func orOpenHive(hivePath string, result *orHKey) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(hivePath)
+	if win32err != nil {
+		return
+	}
+	return _orOpenHive(_p0, result)
+}
+
+func _orOpenHive(hivePath *uint16, result *orHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procOROpenHive.Addr(), 2, uintptr(unsafe.Pointer(hivePath)), uintptr(unsafe.Pointer(result)), 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func orCloseHive(handle orHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procORCloseHive.Addr(), 1, uintptr(handle), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func orSaveHive(handle orHKey, hivePath string, osMajorVersion uint32, osMinorVersion uint32) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(hivePath)
+	if win32err != nil {
+		return
+	}
+	return _orSaveHive(handle, _p0, osMajorVersion, osMinorVersion)
+}
+
+func _orSaveHive(handle orHKey, hivePath *uint16, osMajorVersion uint32, osMinorVersion uint32) (win32err error) {
+	r0, _, _ := syscall.Syscall6(procORSaveHive.Addr(), 4, uintptr(handle), uintptr(unsafe.Pointer(hivePath)), uintptr(osMajorVersion), uintptr(osMinorVersion), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
 	}
 	return
 }

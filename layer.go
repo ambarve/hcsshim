@@ -3,10 +3,13 @@ package hcsshim
 import (
 	"context"
 	"crypto/sha1"
+	"fmt"
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	"github.com/Microsoft/hcsshim/osversion"
 )
 
 func layerPath(info *DriverInfo, id string) string {
@@ -102,6 +105,15 @@ type LayerWriter = wclayer.LayerWriter
 
 func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (LayerWriter, error) {
 	return wclayer.NewLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+
+}
+
+func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cim.CimLayerWriter, error) {
+	if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+		return cim.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+	} else {
+		return nil, fmt.Errorf("cim layers needs builds %d and above, current build: %d", osversion.MIN_CIMFS_BUILD, osversion.Build())
+	}
 }
 
 type WC_LAYER_DESCRIPTOR = wclayer.WC_LAYER_DESCRIPTOR

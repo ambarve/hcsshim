@@ -19,6 +19,9 @@ const (
 	FILE_ATTRIBUTE_SPARSE_FILE   = 0x00000200
 	FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
 
+	// name of the directory in which cims are stored
+	cimDir = "cim-layers"
+
 	// 100ns units between Windows NT epoch (Jan 1 1601) and Unix epoch (Jan 1 1970)
 	epochDelta = 116444736000000000
 )
@@ -121,8 +124,8 @@ func (e *LinkError) Error() string {
 
 func toWindowsTimeFormat(ft syscall.Filetime) windows.Filetime {
 	return windows.Filetime{
-		LowDateTime:  ft.LowDateTime,
-		HighDateTime: ft.HighDateTime,
+		LowDateTime:  uint32(ft.LowDateTime),
+		HighDateTime: uint32(ft.HighDateTime),
 	}
 }
 
@@ -133,4 +136,30 @@ func toNtPath(p string) string {
 		p = p[1:]
 	}
 	return p
+}
+
+// Usually layers are stored at
+// ./root/io.containerd.snapshotter.v1.windows/snapshots/<layerid>. For
+// cimfs we must store all layers in the same directory (for forked
+// cims to work). So all cim layers are stored in
+// /root/io.containerd.snapshotter.v1.windows/snapshots/cim-layers. And
+// the cim file representing each individual layer is stored at
+// /root/io.containerd.snapshotter.v1.windows/snapshots/cim-layers/<layerid>.cim
+
+// CimName is the filename (<layerid>.cim) of the file representing the cim
+func GetCimNameFromLayer(layerPath string) string {
+	return filepath.Base(layerPath) + ".cim"
+}
+
+// CimPath is the path to the CimDir/<layerid>.cim file that represents a layer cim.
+func GetCimPathFromLayer(layerPath string) string {
+	layerId := filepath.Base(layerPath)
+	dir := filepath.Dir(layerPath)
+	return filepath.Join(dir, cimDir, layerId+".cim")
+}
+
+// CimDir is the directory inside which all cims are stored.
+func GetCimDirFromLayer(layerPath string) string {
+	dir := filepath.Dir(layerPath)
+	return filepath.Join(dir, cimDir)
 }
