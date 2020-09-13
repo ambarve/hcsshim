@@ -124,10 +124,18 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		if err != nil {
 			if uvm.OS() == "windows" {
 				for _, l := range layersAdded {
-					if err := uvm.RemoveVSMB(ctx, l, true); err != nil {
-						log.G(ctx).WithError(err).Warn("failed to remove wcow layer on cleanup")
+					if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+						cimPath := cim.GetCimPathFromLayer(l)
+						if err := cim.UnMountFromUVM(ctx, uvm, cimPath); err != nil {
+							log.G(ctx).WithError(err).Warn("failed to unmount cim from uvm on cleanup")
+						}
+					} else {
+						if err := uvm.RemoveVSMB(ctx, l, true); err != nil {
+							log.G(ctx).WithError(err).Warn("failed to remove wcow layer on cleanup")
+						}
 					}
 				}
+
 			} else {
 				for _, l := range layersAdded {
 					// Assume it was added to vPMEM and fall back to SCSI
@@ -143,26 +151,35 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		}
 	}()
 
-	for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-		log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
-		if uvm.OS() == "windows" {
-			options := uvm.DefaultVSMBOptions(true)
-			options.TakeBackupPrivilege = true
-			if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
-				return "", fmt.Errorf("failed to add VSMB layer: %s", err)
+	if osversion.Build() >= osversion.MIN_CIMFS_BUILD && uvm.OS() == "windows" {
+		cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+		_, err := cim.MountInUVM(ctx, uvm, cimPath)
+		if err != nil {
+			return "", err
+		}
+		layersAdded = append(layersAdded, layerFolders[0])
+	} else {
+		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+			log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
+			if uvm.OS() == "windows" {
+				options := uvm.DefaultVSMBOptions(true)
+				options.TakeBackupPrivilege = true
+				if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
+					return "", fmt.Errorf("failed to add VSMB layer: %s", err)
+				}
+				layersAdded = append(layersAdded, layerPath)
+			} else {
+				var (
+					layerPath = filepath.Join(layerPath, "layer.vhd")
+					uvmPath   string
+				)
+				uvmPath, err = addLCOWLayer(ctx, uvm, layerPath)
+				if err != nil {
+					return "", fmt.Errorf("failed to add LCOW layer: %s", err)
+				}
+				layersAdded = append(layersAdded, layerPath)
+				lcowUvmLayerPaths = append(lcowUvmLayerPaths, uvmPath)
 			}
-			layersAdded = append(layersAdded, layerPath)
-		} else {
-			var (
-				layerPath = filepath.Join(layerPath, "layer.vhd")
-				uvmPath   string
-			)
-			uvmPath, err = addLCOWLayer(ctx, uvm, layerPath)
-			if err != nil {
-				return "", fmt.Errorf("failed to add LCOW layer: %s", err)
-			}
-			layersAdded = append(layersAdded, layerPath)
-			lcowUvmLayerPaths = append(lcowUvmLayerPaths, uvmPath)
 		}
 	}
 
@@ -185,11 +202,20 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 
 	var rootfs string
 	if uvm.OS() == "windows" {
-		// 	Load the filter at the C:\s<ID> location calculated above. We pass into this request each of the
-		// 	read-only layer folders.
-		layers, err := GetHCSLayers(ctx, uvm, layersAdded)
-		if err != nil {
-			return "", err
+		// Load the filter at the C:\s<ID> location calculated above. We pass into this
+		// request each of the read-only layer folders.
+		var layers []hcsschema.Layer
+		if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+			cimLayer := []string{cim.GetCimPathFromLayer(layersAdded[0])}
+			layers, err = GetHCSLayers(ctx, uvm, cimLayer)
+			if err != nil {
+				return "", err
+			}
+		} else {
+			layers, err = GetHCSLayers(ctx, uvm, layersAdded)
+			if err != nil {
+				return "", err
+			}
 		}
 		err = uvm.CombineLayersWCOW(ctx, layers, containerScratchPathInUVM)
 		rootfs = containerScratchPathInUVM
@@ -302,13 +328,25 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 	// only removed once the count drops to zero. This allows multiple containers
 	// to share layers.
 	if uvm.OS() == "windows" && (op&UnmountOperationVSMB) == UnmountOperationVSMB {
-		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-			if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
-				log.G(ctx).WithError(e).Warn("remove VSMB failed")
+		if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+			if e := cim.UnMountFromUVM(ctx, uvm, cimPath); e != nil {
+				log.G(ctx).WithError(e).Warn("failed to unmount cim from uvm on cleanup")
 				if retError == nil {
 					retError = e
 				} else {
 					retError = errors.Wrapf(retError, e.Error())
+				}
+			}
+		} else {
+			for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+				if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
+					log.G(ctx).WithError(e).Warn("remove VSMB failed")
+					if retError == nil {
+						retError = e
+					} else {
+						retError = errors.Wrapf(retError, e.Error())
+					}
 				}
 			}
 		}
