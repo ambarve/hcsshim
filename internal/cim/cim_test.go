@@ -64,7 +64,7 @@ func TestCimReadWrite(t *testing.T) {
 	testContents := []tuple{
 		{"foobar.txt", []byte("foobar test data"), false},
 		{"foo", []byte(""), true},
-		{"foo/bar.txt", []byte("bar test data"), false},
+		{"foo\\bar.txt", []byte("bar test data"), false},
 	}
 	cimName := "test.cim"
 	tempDir, err := ioutil.TempDir("", "cim-test")
@@ -92,14 +92,14 @@ func TestCimReadWrite(t *testing.T) {
 		t.Fatalf("failed while opening the cim: %s", err)
 	}
 
-	rootDir, err := cimReader.Open("/")
-	if err != nil {
-		t.Fatalf("failed to open the root of the cim: %s", err)
-	}
+	// rootDir, err := cimReader.Open("/")
+	// if err != nil {
+	// 	t.Fatalf("failed to open the root of the cim: %s", err)
+	// }
 
 	for _, ft := range testContents {
 		// make sure the size of byte array is larger than contents of the largest file
-		f, err := rootDir.OpenAt(ft.filepath)
+		f, err := cimReader.Open(ft.filepath)
 		if err != nil {
 			t.Fatalf("unable to read file %s from the cim: %s", ft.filepath, err)
 		}

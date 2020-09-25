@@ -15,6 +15,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/Microsoft/hcsshim/osversion"
+	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
 
@@ -35,8 +36,10 @@ type CimLayerWriter struct {
 }
 
 const (
-	regFilesPath = "Files\\Windows\\System32\\config"
-	hivesPath    = "Hives"
+	regFilesPath       = "Files\\Windows\\System32\\config"
+	hivesPath          = "Hives"
+	utilityVMPath      = `UtilityVM`
+	utilityVMFilesPath = `UtilityVM\Files`
 )
 
 type hive struct {
@@ -77,7 +80,6 @@ func (cw *CimLayerWriter) Add(name string, fileInfo winio.FileBasicInfo, fileSiz
 	if err := cw.closeActiveHive(); err != nil {
 		return err
 	}
-
 	// if it is a delta hive file write it to the layer directory. Hives are handled differently.
 	if isDeltaHive(name) {
 		activeHive, err := os.Create(filepath.Join(cw.path, filepath.Base(name)))
@@ -191,6 +193,7 @@ func fetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 			err = err2
 		}
 	}()
+
 	cimFile, err := cimReader.Open(filePath)
 	if err != nil {
 		return fmt.Errorf("failed while opening file %s inside the cim %s: %s", filePath, cimPath, err)
@@ -232,7 +235,7 @@ func mergeHive(parentHivePath, deltaHivePath, mergedHivePath string) (err error)
 	defer func() {
 		err2 := orCloseHive(baseHive)
 		if err == nil {
-			err = fmt.Errorf("failed to close base hive: %s", err2)
+			err = errors.Wrap(err2, "failed to close base hive")
 		}
 	}()
 	if err := orOpenHive(deltaHivePath, &deltaHive); err != nil {
@@ -241,7 +244,7 @@ func mergeHive(parentHivePath, deltaHivePath, mergedHivePath string) (err error)
 	defer func() {
 		err2 := orCloseHive(deltaHive)
 		if err == nil {
-			err = fmt.Errorf("failed to close delta hive: %s", err2)
+			err = errors.Wrap(err2, "failed to close delta hive")
 		}
 	}()
 	if err := orMergeHives([]orHKey{baseHive, deltaHive}, &mergedHive); err != nil {
@@ -250,7 +253,7 @@ func mergeHive(parentHivePath, deltaHivePath, mergedHivePath string) (err error)
 	defer func() {
 		err2 := orCloseHive(mergedHive)
 		if err == nil {
-			err = fmt.Errorf("failed to close merged hive: %s", err2)
+			err = errors.Wrap(err2, "failed to close merged hive")
 		}
 	}()
 	if err := orSaveHive(mergedHive, mergedHivePath, uint32(osversion.Get().MajorVersion), uint32(osversion.Get().MinorVersion)); err != nil {

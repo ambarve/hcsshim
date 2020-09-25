@@ -143,7 +143,10 @@ func (c *cim) addFile(path string, info winio.FileBasicInfo, fileSize int64, sec
 		return &PathError{Cim: c.name, Op: "addFile", Path: path, Err: err}
 	}
 	c.activeName = path
-	if info.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_SPARSE_FILE) == 0 {
+	//TODO(ambarve): Docker adds sparse file tag to files which have some data in it. However,
+	// this is not allowed in cimfs. Figure out how this can be fixed.
+	// if info.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_SPARSE_FILE) == 0 {
+	if info.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY) == 0 {
 		c.activeLeft = fileSize
 	}
 	return nil

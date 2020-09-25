@@ -277,14 +277,14 @@ func (cr *Reader) readBin(v interface{}, o format.RegionOffset, off uint64) erro
 }
 
 // OpenAt returns a file associated with path `p`, relative to `dirf`. If `dirf`
-// is nil or `p` starts with '/', then the path will be opened relative to the
+// is nil or `p` starts with '\\', then the path will be opened relative to the
 // CIM root.
 func (f *File) OpenAt(p string) (*File, error) {
 	return f.r.openAt(f, p)
 }
 
 func (cr *Reader) Root() *File {
-	return cr.newFile("/", cr.root)
+	return cr.newFile("\\", cr.root)
 }
 
 func (cr *Reader) Open(p string) (*File, error) {
@@ -314,9 +314,9 @@ func (cr *Reader) walkPath(ino *inode, p string) (*inode, int, error) {
 		if !ino.IsDir() {
 			break
 		}
-		for n := 0; len(p) > walked+n && p[walked+n] == '/'; n++ {
+		for n := 0; len(p) > walked+n && p[walked+n] == '\\'; n++ {
 		}
-		n := strings.IndexByte(p[walked:], '/')
+		n := strings.IndexByte(p[walked:], '\\')
 		var (
 			name string
 			next int
@@ -349,11 +349,11 @@ func (cr *Reader) walkPath(ino *inode, p string) (*inode, int, error) {
 func (cr *Reader) openAt(dirf *File, p string) (_ *File, err error) {
 	fullp := p
 	var ino *inode
-	if len(p) > 0 && p[0] == '/' {
+	if len(p) > 0 && p[0] == '\\' {
 		ino = cr.root
 	} else {
 		ino = dirf.ino
-		fullp = dirf.name + "/" + fullp
+		fullp = dirf.name + "\\" + fullp
 	}
 	defer func() {
 		if err != nil {
