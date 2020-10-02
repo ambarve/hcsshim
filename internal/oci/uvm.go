@@ -79,7 +79,13 @@ const (
 	// `spec.Windows.Resources.Storage.Iops`.
 	AnnotationContainerStorageQoSIopsMaximum = "io.microsoft.container.storage.qos.iopsmaximum"
 	// AnnotationGPUVHDPath overrides the default path to search for the gpu vhd
-	AnnotationGPUVHDPath            = "io.microsoft.lcow.gpuvhdpath"
+	AnnotationGPUVHDPath = "io.microsoft.lcow.gpuvhdpath"
+	// AnnotationAssignedDeviceKernelDrivers indicates what drivers to install in the pod during device
+	// assignment. This value should contain a list of comma separated directories containing all
+	// files and information needed to install given driver(s). This may include .sys,
+	// .inf, .cer, and/or other files used during standard installation with pnputil.
+	AnnotationAssignedDeviceKernelDrivers = "io.microsoft.assigneddevice.kerneldrivers"
+
 	annotationAllowOvercommit       = "io.microsoft.virtualmachine.computetopology.memory.allowovercommit"
 	annotationEnableDeferredCommit  = "io.microsoft.virtualmachine.computetopology.memory.enabledeferredcommit"
 	annotationEnableColdDiscardHint = "io.microsoft.virtualmachine.computetopology.memory.enablecolddiscardhint"
@@ -240,16 +246,16 @@ func ParseAnnotationsStorageBps(ctx context.Context, s *specs.Spec, annotation s
 // returns `def`.
 //
 // Note: The returned value is in `MB`.
-func ParseAnnotationsMemory(ctx context.Context, s *specs.Spec, annotation string, def int32) int32 {
+func ParseAnnotationsMemory(ctx context.Context, s *specs.Spec, annotation string, def uint64) uint64 {
 	if m := parseAnnotationsUint64(ctx, s.Annotations, annotation, 0); m != 0 {
-		return int32(m)
+		return m
 	}
 	if s.Windows != nil &&
 		s.Windows.Resources != nil &&
 		s.Windows.Resources.Memory != nil &&
 		s.Windows.Resources.Memory.Limit != nil &&
 		*s.Windows.Resources.Memory.Limit > 0 {
-		return int32(*s.Windows.Resources.Memory.Limit / 1024 / 1024)
+		return (*s.Windows.Resources.Memory.Limit / 1024 / 1024)
 	}
 	return def
 }

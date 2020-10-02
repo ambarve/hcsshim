@@ -9,7 +9,13 @@ import (
 
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcsoci"
+	"github.com/Microsoft/hcsshim/internal/resources"
 	"github.com/sirupsen/logrus"
+)
+
+const (
+	bytesPerMB   = 1024 * 1024
+	bytesPerPage = 4096
 )
 
 var pauseDurationOnCreateContainerFailure time.Duration
@@ -34,7 +40,7 @@ func init() {
 
 }
 
-func CreateContainerTestWrapper(ctx context.Context, options *hcsoci.CreateOptions) (cow.Container, *hcsoci.Resources, error) {
+func CreateContainerTestWrapper(ctx context.Context, options *hcsoci.CreateOptions) (cow.Container, *resources.Resources, error) {
 	if pauseDurationOnCreateContainerFailure != 0 {
 		options.DoNotReleaseResourcesOnFailure = true
 	}
@@ -42,7 +48,7 @@ func CreateContainerTestWrapper(ctx context.Context, options *hcsoci.CreateOptio
 	if err != nil {
 		logrus.Warnf("Test is pausing for %s for debugging CreateContainer failure", pauseDurationOnCreateContainerFailure)
 		time.Sleep(pauseDurationOnCreateContainerFailure)
-		hcsoci.ReleaseResources(ctx, r, options.HostingSystem, true)
+		resources.ReleaseResources(ctx, r, options.HostingSystem, true)
 	}
 	return s, r, err
 }

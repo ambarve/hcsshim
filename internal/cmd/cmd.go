@@ -1,4 +1,6 @@
-package hcsoci
+// Package cmd provides functionality used to execute commands inside of containers
+// or UVMs, and to connect an upstream client to those commands for handling in/out/err IO.
+package cmd
 
 import (
 	"bytes"
@@ -99,6 +101,7 @@ func Command(host cow.ProcessHost, name string, arg ...string) *Cmd {
 		Spec: &specs.Process{
 			Args: append([]string{name}, arg...),
 		},
+		ExitState: &ExitState{},
 	}
 	if host.OS() == "windows" {
 		cmd.Spec.Cwd = `C:\`
