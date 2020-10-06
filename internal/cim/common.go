@@ -2,7 +2,6 @@ package cim
 
 import (
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -131,7 +130,7 @@ func toWindowsTimeFormat(ft syscall.Filetime) windows.Filetime {
 
 func toNtPath(p string) string {
 	p = filepath.FromSlash(p)
-	p = strings.ToLower(p)
+	// p = strings.ToLower(p)
 	for len(p) > 0 && p[0] == filepath.Separator {
 		p = p[1:]
 	}

@@ -109,7 +109,7 @@ func (c *cim) closeStream() error {
 // addFile adds a new file to the image. The file is added at the
 // specified path. After calling this function, the file is set as the active
 // stream for the image, so data can be written by calling `Write`.
-func (c *cim) addFile(path string, info winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+func (c *cim) addFile(path string, info *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
 	err := c.closeStream()
 	if err != nil {
 		return err
@@ -153,7 +153,7 @@ func (c *cim) addFile(path string, info winio.FileBasicInfo, fileSize int64, sec
 }
 
 // write writes bytes to the active stream.
-func (c *cim) write(p []byte) (int, error) {
+func (c *cim) Write(p []byte) (int, error) {
 	if c.activeStream == 0 {
 		return 0, errors.New("no active stream")
 	}

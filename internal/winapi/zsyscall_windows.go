@@ -40,6 +40,7 @@ var (
 	modcfgmgr32 = windows.NewLazySystemDLL("cfgmgr32.dll")
 	modkernel32 = windows.NewLazySystemDLL("kernel32.dll")
 	modntdll    = windows.NewLazySystemDLL("ntdll.dll")
+	modoffreg   = windows.NewLazySystemDLL("offreg.dll")
 
 	procCM_Get_Device_ID_List_SizeA = modcfgmgr32.NewProc("CM_Get_Device_ID_List_SizeA")
 	procCM_Get_Device_ID_ListA      = modcfgmgr32.NewProc("CM_Get_Device_ID_ListA")
@@ -52,6 +53,16 @@ var (
 	procNtOpenDirectoryObject       = modntdll.NewProc("NtOpenDirectoryObject")
 	procNtQueryDirectoryObject      = modntdll.NewProc("NtQueryDirectoryObject")
 	procRtlNtStatusToDosError       = modntdll.NewProc("RtlNtStatusToDosError")
+	procORMergeHives                = modoffreg.NewProc("ORMergeHives")
+	procOROpenHive                  = modoffreg.NewProc("OROpenHive")
+	procORCloseHive                 = modoffreg.NewProc("ORCloseHive")
+	procORSaveHive                  = modoffreg.NewProc("ORSaveHive")
+	procOROpenKey                   = modoffreg.NewProc("OROpenKey")
+	procORCloseKey                  = modoffreg.NewProc("ORCloseKey")
+	procORCreateKey                 = modoffreg.NewProc("ORCreateKey")
+	procORDeleteKey                 = modoffreg.NewProc("ORDeleteKey")
+	procORGetValue                  = modoffreg.NewProc("ORGetValue")
+	procORSetValue                  = modoffreg.NewProc("ORSetValue")
 )
 
 func CMGetDeviceIDListSize(pulLen *uint32, pszFilter *byte, uFlags uint32) (hr error) {
@@ -158,6 +169,158 @@ func RtlNtStatusToDosError(status uint32) (winerr error) {
 	r0, _, _ := syscall.Syscall(procRtlNtStatusToDosError.Addr(), 1, uintptr(status), 0, 0)
 	if r0 != 0 {
 		winerr = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrMergeHives(hiveHandles []OrHKey, result *OrHKey) (win32err error) {
+	var _p0 *OrHKey
+	if len(hiveHandles) > 0 {
+		_p0 = &hiveHandles[0]
+	}
+	r0, _, _ := syscall.Syscall(procORMergeHives.Addr(), 3, uintptr(unsafe.Pointer(_p0)), uintptr(len(hiveHandles)), uintptr(unsafe.Pointer(result)))
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrOpenHive(hivePath string, result *OrHKey) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(hivePath)
+	if win32err != nil {
+		return
+	}
+	return _OrOpenHive(_p0, result)
+}
+
+func _OrOpenHive(hivePath *uint16, result *OrHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procOROpenHive.Addr(), 2, uintptr(unsafe.Pointer(hivePath)), uintptr(unsafe.Pointer(result)), 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrCloseHive(handle OrHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procORCloseHive.Addr(), 1, uintptr(handle), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrSaveHive(handle OrHKey, hivePath string, osMajorVersion uint32, osMinorVersion uint32) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(hivePath)
+	if win32err != nil {
+		return
+	}
+	return _OrSaveHive(handle, _p0, osMajorVersion, osMinorVersion)
+}
+
+func _OrSaveHive(handle OrHKey, hivePath *uint16, osMajorVersion uint32, osMinorVersion uint32) (win32err error) {
+	r0, _, _ := syscall.Syscall6(procORSaveHive.Addr(), 4, uintptr(handle), uintptr(unsafe.Pointer(hivePath)), uintptr(osMajorVersion), uintptr(osMinorVersion), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrOpenKey(handle OrHKey, subKey string, result *OrHKey) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(subKey)
+	if win32err != nil {
+		return
+	}
+	return _OrOpenKey(handle, _p0, result)
+}
+
+func _OrOpenKey(handle OrHKey, subKey *uint16, result *OrHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procOROpenKey.Addr(), 3, uintptr(handle), uintptr(unsafe.Pointer(subKey)), uintptr(unsafe.Pointer(result)))
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrCloseKey(handle OrHKey) (win32err error) {
+	r0, _, _ := syscall.Syscall(procORCloseKey.Addr(), 1, uintptr(handle), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrCreateKey(handle OrHKey, subKey string, class uintptr, options uint32, securityDescriptor uintptr, result *OrHKey, disposition *uint32) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(subKey)
+	if win32err != nil {
+		return
+	}
+	return _OrCreateKey(handle, _p0, class, options, securityDescriptor, result, disposition)
+}
+
+func _OrCreateKey(handle OrHKey, subKey *uint16, class uintptr, options uint32, securityDescriptor uintptr, result *OrHKey, disposition *uint32) (win32err error) {
+	r0, _, _ := syscall.Syscall9(procORCreateKey.Addr(), 7, uintptr(handle), uintptr(unsafe.Pointer(subKey)), uintptr(class), uintptr(options), uintptr(securityDescriptor), uintptr(unsafe.Pointer(result)), uintptr(unsafe.Pointer(disposition)), 0, 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrDeleteKey(handle OrHKey, subKey string) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(subKey)
+	if win32err != nil {
+		return
+	}
+	return _OrDeleteKey(handle, _p0)
+}
+
+func _OrDeleteKey(handle OrHKey, subKey *uint16) (win32err error) {
+	r0, _, _ := syscall.Syscall(procORDeleteKey.Addr(), 2, uintptr(handle), uintptr(unsafe.Pointer(subKey)), 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrGetValue(handle OrHKey, subKey string, value string, valueType *uint32, data *byte, dataLen *uint32) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(subKey)
+	if win32err != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, win32err = syscall.UTF16PtrFromString(value)
+	if win32err != nil {
+		return
+	}
+	return _OrGetValue(handle, _p0, _p1, valueType, data, dataLen)
+}
+
+func _OrGetValue(handle OrHKey, subKey *uint16, value *uint16, valueType *uint32, data *byte, dataLen *uint32) (win32err error) {
+	r0, _, _ := syscall.Syscall6(procORGetValue.Addr(), 6, uintptr(handle), uintptr(unsafe.Pointer(subKey)), uintptr(unsafe.Pointer(value)), uintptr(unsafe.Pointer(valueType)), uintptr(unsafe.Pointer(data)), uintptr(unsafe.Pointer(dataLen)))
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func OrSetValue(handle OrHKey, valueName string, valueType uint32, data *byte, dataLen uint32) (win32err error) {
+	var _p0 *uint16
+	_p0, win32err = syscall.UTF16PtrFromString(valueName)
+	if win32err != nil {
+		return
+	}
+	return _OrSetValue(handle, _p0, valueType, data, dataLen)
+}
+
+func _OrSetValue(handle OrHKey, valueName *uint16, valueType uint32, data *byte, dataLen uint32) (win32err error) {
+	r0, _, _ := syscall.Syscall6(procORSetValue.Addr(), 5, uintptr(handle), uintptr(unsafe.Pointer(valueName)), uintptr(valueType), uintptr(unsafe.Pointer(data)), uintptr(dataLen), 0)
+	if r0 != 0 {
+		win32err = syscall.Errno(r0)
 	}
 	return
 }

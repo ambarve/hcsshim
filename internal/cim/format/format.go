@@ -225,9 +225,6 @@ type File struct {
 	Flags             FileFlags
 	EaLength          uint16
 	ReparseTag        uint32
-	ParentFileId      FileID
-	BaseRegionIndex   uint16
-	Reserved          uint16
 	CreationTime      uint64
 	LastWriteTime     uint64
 	ChangeTime        uint64
@@ -237,6 +234,9 @@ type File struct {
 	EaOffset          RegionOffset // gsl::byte[]
 	ReparseOffset     RegionOffset // uint16 counted gsl::byte[]
 	StreamTableOffset RegionOffset // LinkTable<Stream>
+	ParentFileId      FileID
+	BaseRegionIndex   uint16
+	Reserved          uint16
 }
 
 const MaximumEaNameLength = 254

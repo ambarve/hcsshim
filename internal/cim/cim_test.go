@@ -26,7 +26,7 @@ type tuple struct {
 // A utility function to create a file/directory and write data to it in the given cim
 func createCimFileUtil(c *cim, fileTuple tuple) error {
 	// create files inside the cim
-	fileInfo := winio.FileBasicInfo{
+	fileInfo := &winio.FileBasicInfo{
 		CreationTime:   syscall.NsecToFiletime(time.Now().UnixNano()),
 		LastAccessTime: syscall.NsecToFiletime(time.Now().UnixNano()),
 		LastWriteTime:  syscall.NsecToFiletime(time.Now().UnixNano()),
@@ -42,7 +42,7 @@ func createCimFileUtil(c *cim, fileTuple tuple) error {
 	}
 
 	if !fileTuple.isDir {
-		wc, err := c.write(fileTuple.fileContents)
+		wc, err := c.Write(fileTuple.fileContents)
 		if err != nil || wc != len(fileTuple.fileContents) {
 			if err == nil {
 				return fmt.Errorf("unable to finish writing to file %s", fileTuple.filepath)

@@ -2,8 +2,10 @@ package wclayer
 
 import (
 	"context"
+	"fmt"
 	"os"
 
+	"github.com/Microsoft/go-winio/pkg/guid"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"go.opencensus.io/trace"
 )
@@ -57,6 +59,24 @@ func ProcessUtilityVMImage(ctx context.Context, path string) (err error) {
 	err = processUtilityImage(path)
 	if err != nil {
 		return &os.PathError{Op: title, Path: path, Err: err}
+	}
+	return nil
+}
+
+// UpdateBcdStoreForBoot updates the BCD store in the given baseOsPath
+// (usually "baseOsPath" + "Files/EFI\Microsoft\Boot\BCD") to boot from the given diskID and partitionID.
+func UpdateBcdStoreForBoot(ctx context.Context, baseOsPath string, diskID, partitionID guid.GUID) (err error) {
+	title := "hcsshim::UpdateBcdStoreForBoot"
+	ctx, span := trace.StartSpan(ctx, title)
+	defer span.End()
+	defer func() { oc.SetSpanStatus(span, err) }()
+	span.AddAttributes(trace.StringAttribute("baseOSPath", baseOsPath))
+	span.AddAttributes(trace.StringAttribute("diskID", diskID.String()))
+	span.AddAttributes(trace.StringAttribute("partitionID", partitionID.String()))
+
+	err = updateBcdStoreForBoot(baseOsPath, &diskID, &partitionID)
+	if err != nil {
+		return fmt.Errorf("failed to update bcd store for boot: %s", err)
 	}
 	return nil
 }

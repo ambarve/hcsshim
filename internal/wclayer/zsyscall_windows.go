@@ -41,28 +41,30 @@ var (
 	modvirtdisk  = windows.NewLazySystemDLL("virtdisk.dll")
 	modkernel32  = windows.NewLazySystemDLL("kernel32.dll")
 
-	procActivateLayer       = modvmcompute.NewProc("ActivateLayer")
-	procCopyLayer           = modvmcompute.NewProc("CopyLayer")
-	procCreateLayer         = modvmcompute.NewProc("CreateLayer")
-	procCreateSandboxLayer  = modvmcompute.NewProc("CreateSandboxLayer")
-	procExpandSandboxSize   = modvmcompute.NewProc("ExpandSandboxSize")
-	procDeactivateLayer     = modvmcompute.NewProc("DeactivateLayer")
-	procDestroyLayer        = modvmcompute.NewProc("DestroyLayer")
-	procExportLayer         = modvmcompute.NewProc("ExportLayer")
-	procGetLayerMountPath   = modvmcompute.NewProc("GetLayerMountPath")
-	procGetBaseImages       = modvmcompute.NewProc("GetBaseImages")
-	procImportLayer         = modvmcompute.NewProc("ImportLayer")
-	procLayerExists         = modvmcompute.NewProc("LayerExists")
-	procNameToGuid          = modvmcompute.NewProc("NameToGuid")
-	procPrepareLayer        = modvmcompute.NewProc("PrepareLayer")
-	procUnprepareLayer      = modvmcompute.NewProc("UnprepareLayer")
-	procProcessBaseImage    = modvmcompute.NewProc("ProcessBaseImage")
-	procProcessImageEx      = modvmcompute.NewProc("ProcessImageEx")
-	procProcessUtilityImage = modvmcompute.NewProc("ProcessUtilityImage")
-	procGrantVmAccess       = modvmcompute.NewProc("GrantVmAccess")
-	procOpenVirtualDisk     = modvirtdisk.NewProc("OpenVirtualDisk")
-	procAttachVirtualDisk   = modvirtdisk.NewProc("AttachVirtualDisk")
-	procGetDiskFreeSpaceExW = modkernel32.NewProc("GetDiskFreeSpaceExW")
+	procActivateLayer              = modvmcompute.NewProc("ActivateLayer")
+	procCopyLayer                  = modvmcompute.NewProc("CopyLayer")
+	procCreateLayer                = modvmcompute.NewProc("CreateLayer")
+	procCreateSandboxLayer         = modvmcompute.NewProc("CreateSandboxLayer")
+	procExpandSandboxSize          = modvmcompute.NewProc("ExpandSandboxSize")
+	procDeactivateLayer            = modvmcompute.NewProc("DeactivateLayer")
+	procDestroyLayer               = modvmcompute.NewProc("DestroyLayer")
+	procExportLayer                = modvmcompute.NewProc("ExportLayer")
+	procGetLayerMountPath          = modvmcompute.NewProc("GetLayerMountPath")
+	procGetBaseImages              = modvmcompute.NewProc("GetBaseImages")
+	procImportLayer                = modvmcompute.NewProc("ImportLayer")
+	procLayerExists                = modvmcompute.NewProc("LayerExists")
+	procNameToGuid                 = modvmcompute.NewProc("NameToGuid")
+	procPrepareLayer               = modvmcompute.NewProc("PrepareLayer")
+	procUnprepareLayer             = modvmcompute.NewProc("UnprepareLayer")
+	procProcessBaseImage           = modvmcompute.NewProc("ProcessBaseImage")
+	procProcessImageEx             = modvmcompute.NewProc("ProcessImageEx")
+	procProcessUtilityImage        = modvmcompute.NewProc("ProcessUtilityImage")
+	procGrantVmAccess              = modvmcompute.NewProc("GrantVmAccess")
+	procOpenVirtualDisk            = modvirtdisk.NewProc("OpenVirtualDisk")
+	procAttachVirtualDisk          = modvirtdisk.NewProc("AttachVirtualDisk")
+	procGetVirtualDiskPhysicalPath = modvirtdisk.NewProc("GetVirtualDiskPhysicalPath")
+	procGetDiskFreeSpaceExW        = modkernel32.NewProc("GetDiskFreeSpaceExW")
+	procUpdateBcdStoreForBoot      = modvmcompute.NewProc("UpdateBcdStoreForBoot")
 )
 
 func activateLayer(info *driverInfo, id string) (hr error) {
@@ -576,6 +578,18 @@ func attachVirtualDisk(handle syscall.Handle, sd uintptr, flags uint32, provider
 	return
 }
 
+func getVirtualDiskPhysicalPath(handle syscall.Handle, diskPathSizeInBytes *uint32, buffer *uint16) (err error) {
+	r1, _, e1 := syscall.Syscall(procGetVirtualDiskPhysicalPath.Addr(), 3, uintptr(handle), uintptr(unsafe.Pointer(diskPathSizeInBytes)), uintptr(unsafe.Pointer(buffer)))
+	if r1 != 0 {
+		if e1 != 0 {
+			err = errnoErr(e1)
+		} else {
+			err = syscall.EINVAL
+		}
+	}
+	return
+}
+
 func getDiskFreeSpaceEx(directoryName string, freeBytesAvailableToCaller *int64, totalNumberOfBytes *int64, totalNumberOfFreeBytes *int64) (err error) {
 	var _p0 *uint16
 	_p0, err = syscall.UTF16PtrFromString(directoryName)
@@ -593,6 +607,29 @@ func _getDiskFreeSpaceEx(directoryName *uint16, freeBytesAvailableToCaller *int6
 		} else {
 			err = syscall.EINVAL
 		}
+	}
+	return
+}
+
+func updateBcdStoreForBoot(baseOSPath string, diskID *_guid, partitionID *_guid) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(baseOSPath)
+	if hr != nil {
+		return
+	}
+	return _updateBcdStoreForBoot(_p0, diskID, partitionID)
+}
+
+func _updateBcdStoreForBoot(baseOSPath *uint16, diskID *_guid, partitionID *_guid) (hr error) {
+	if hr = procUpdateBcdStoreForBoot.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procUpdateBcdStoreForBoot.Addr(), 3, uintptr(unsafe.Pointer(baseOSPath)), uintptr(unsafe.Pointer(diskID)), uintptr(unsafe.Pointer(partitionID)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
 	}
 	return
 }

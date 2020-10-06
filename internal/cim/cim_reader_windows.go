@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/Microsoft/hcsshim/internal/cim/format"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 )
 
 var (
@@ -668,7 +669,7 @@ func enumLinkTable(b []byte, esize int, f func(string, []byte) error) error {
 		if err != nil {
 			return err
 		}
-		if err := f(parseUtf16LE(name), es[i*esize:(i+1)*esize]); err != nil {
+		if err := f(winapi.ParseUtf16LE(name), es[i*esize:(i+1)*esize]); err != nil {
 			return err
 		}
 	}

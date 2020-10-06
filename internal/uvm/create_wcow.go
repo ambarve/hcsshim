@@ -8,15 +8,18 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/Microsoft/hcsshim/internal/mergemaps"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wcow"
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
@@ -72,6 +75,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		vpciDevices:             make(map[string]*VPCIDevice),
 		physicallyBacked:        !opts.AllowOvercommit,
 		devicesPhysicallyBacked: opts.FullyPhysicallyBacked,
+		cimMounts:               make(map[string]*cimInfo),
 	}
 
 	defer func() {
@@ -84,7 +88,39 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		return nil, errors.Wrap(err, errBadUVMOpts.Error())
 	}
 
-	uvmFolder, err := uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
+	var cimLayers []string
+	var uvmFolder string
+	if osversion.Build() >= osversion.MIN_CIMFS_BUILD {
+		// The topmost parent layer is at 0
+		parentLayer := opts.LayerFolders[0]
+		cimPath := cim.GetCimPathFromLayer(parentLayer)
+		uvm.cimPath = cimPath
+		cimMountPath, err := cim.Mount(cimPath)
+		if err != nil {
+			return nil, err
+		}
+		mylogger.LogFmt("mounted wcow uvm cim at: %s\n", cimMountPath)
+		defer func() {
+			if err != nil {
+				if err2 := cim.UnMount(cimPath); err2 != nil {
+					log.G(ctx).WithField("cimPath", cimPath).Warn("failed to unmount cim")
+				}
+			}
+		}()
+		cimLayers = append(cimLayers, cimMountPath)
+		cimLayers = append(cimLayers, opts.LayerFolders[len(opts.LayerFolders)-1])
+		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, cimLayers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+		}
+	} else {
+		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+		}
+	}
+
+	legacyUvmFolder, err := uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
 	}
@@ -107,7 +143,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	// Create sandbox.vhdx in the scratch folder based on the template, granting the correct permissions to it
 	scratchPath := filepath.Join(scratchFolder, "sandbox.vhdx")
 	if _, err := os.Stat(scratchPath); os.IsNotExist(err) {
-		if err := wcow.CreateUVMScratch(ctx, uvmFolder, scratchFolder, uvm.id); err != nil {
+		if err := wcow.CreateUVMScratch(ctx, legacyUvmFolder, scratchFolder, uvm.id); err != nil {
 			return nil, fmt.Errorf("failed to create scratch: %s", err)
 		}
 	}
@@ -170,6 +206,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 				},
 			},
 			Devices: &hcsschema.Devices{
+				// ComPorts: map[string]hcsschema.ComPort{
+				// 	"0": {
+				// 		NamedPipe: "\\\\.\\pipe\\debugpipe",
+				// 	},
+				// },
 				Scsi: map[string]hcsschema.Scsi{
 					"0": {
 						Attachments: map[string]hcsschema.Attachment{

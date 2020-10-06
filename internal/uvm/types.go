@@ -113,4 +113,10 @@ type UtilityVM struct {
 	// This is used in generating unique mount path inside UVM for every mount.
 	// Access to this variable should be done atomically.
 	mountCounter uint64
+
+	// cim layer on which this uvm will boot
+	cimPath string
+
+	// cim layers which are mounted inside this uvm.
+	cimMounts map[string]*cimInfo
 }

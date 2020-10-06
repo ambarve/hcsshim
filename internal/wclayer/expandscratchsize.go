@@ -55,7 +55,12 @@ type openVirtualDiskParameters struct {
 	Version2 openVersion2
 }
 
-func attachVhd(path string) (syscall.Handle, error) {
+const (
+	ATTACH_VIRTUAL_DISK_FLAG_NO_DRIVE_LETTER                  uint32 = 0x00000002
+	ATTACH_VIRTUAL_DISK_FLAG_BYPASS_DEFAULT_ENCRYPTION_POLICY uint32 = 0x00000020
+)
+
+func attachVhd(path string, attachFlags uint32) (syscall.Handle, error) {
 	var (
 		defaultType virtualStorageType
 		handle      syscall.Handle
@@ -71,7 +76,7 @@ func attachVhd(path string) (syscall.Handle, error) {
 	if err != nil {
 		return 0, &os.PathError{Op: "OpenVirtualDisk", Path: path, Err: err}
 	}
-	err = attachVirtualDisk(handle, 0, 0, 0, 0, 0)
+	err = attachVirtualDisk(handle, 0, attachFlags, 0, 0, 0)
 	if err != nil {
 		syscall.Close(handle)
 		return 0, &os.PathError{Op: "AttachVirtualDisk", Path: path, Err: err}
@@ -82,7 +87,7 @@ func attachVhd(path string) (syscall.Handle, error) {
 func expandSandboxVolume(ctx context.Context, path string) error {
 	// Mount the sandbox VHD temporarily.
 	vhdPath := filepath.Join(path, "sandbox.vhdx")
-	vhd, err := attachVhd(vhdPath)
+	vhd, err := attachVhd(vhdPath, 0)
 	if err != nil {
 		return &os.PathError{Op: "OpenVirtualDisk", Path: vhdPath, Err: err}
 	}

@@ -42,7 +42,8 @@ const (
 	ProcessImage_NoOptimizeCiCache           = 0x00000001
 	ProcessImage_SkipSandboxPreExpansion     = 0x00000002
 	ProcessImage_SkipSandboxDiffDiskCreation = 0x00000004
-	ProcessImage_ValidOptions                = 0x00000007
+	ProcessImage_SkipUpdateBcdForBoot        = 0x00000008
+	ProcessImage_ValidOptions                = 0x0000000F
 )
 
 // reapplyDirectoryTimes reapplies directory modification, creation, etc. times
