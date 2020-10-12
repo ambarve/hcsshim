@@ -10,7 +10,6 @@ import (
 
 	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -216,7 +215,6 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 				return "", err
 			}
 		}
-		mylogger.LogFmt("combining layers: %+v\n", layers)
 		err = uvm.CombineLayersWCOW(ctx, layers, containerScratchPathInUVM)
 		rootfs = containerScratchPathInUVM
 	} else {
@@ -404,7 +402,7 @@ func GetCimHCSLayer(ctx context.Context, vm *uvm.UtilityVM, cimPath string) (lay
 	// Note: the LayerID is still calculated with the cim path.
 	// TODO(ambarve): There is some confusion with vsmb share ID and the layer ID
 	// that we pass here. Figure out the proper way.
-	layerID, err := wclayer.LayerID(ctx, uvmPath)
+	layerID, err := wclayer.LayerID(ctx, cimPath)
 	if err != nil {
 		return nil, err
 	}

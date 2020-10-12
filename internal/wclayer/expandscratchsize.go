@@ -9,8 +9,11 @@ import (
 
 	"github.com/Microsoft/hcsshim/internal/hcserror"
 	"github.com/Microsoft/hcsshim/internal/oc"
+	"github.com/Microsoft/hcsshim/internal/vhdx"
+	"github.com/Microsoft/hcsshim/internal/virtdisk"
 	"github.com/Microsoft/hcsshim/osversion"
 	"go.opencensus.io/trace"
+	"golang.org/x/sys/windows"
 )
 
 // ExpandScratchSize expands the size of a layer to at least size bytes.
@@ -39,59 +42,14 @@ func ExpandScratchSize(ctx context.Context, path string, size uint64) (err error
 	return nil
 }
 
-type virtualStorageType struct {
-	DeviceID uint32
-	VendorID [16]byte
-}
-
-type openVersion2 struct {
-	GetInfoOnly    int32    // bool but 4-byte aligned
-	ReadOnly       int32    // bool but 4-byte aligned
-	ResiliencyGUID [16]byte // GUID
-}
-
-type openVirtualDiskParameters struct {
-	Version  uint32 // Must always be set to 2
-	Version2 openVersion2
-}
-
-const (
-	ATTACH_VIRTUAL_DISK_FLAG_NO_DRIVE_LETTER                  uint32 = 0x00000002
-	ATTACH_VIRTUAL_DISK_FLAG_BYPASS_DEFAULT_ENCRYPTION_POLICY uint32 = 0x00000020
-)
-
-func attachVhd(path string, attachFlags uint32) (syscall.Handle, error) {
-	var (
-		defaultType virtualStorageType
-		handle      syscall.Handle
-	)
-	parameters := openVirtualDiskParameters{Version: 2}
-	err := openVirtualDisk(
-		&defaultType,
-		path,
-		0,
-		0,
-		&parameters,
-		&handle)
-	if err != nil {
-		return 0, &os.PathError{Op: "OpenVirtualDisk", Path: path, Err: err}
-	}
-	err = attachVirtualDisk(handle, 0, attachFlags, 0, 0, 0)
-	if err != nil {
-		syscall.Close(handle)
-		return 0, &os.PathError{Op: "AttachVirtualDisk", Path: path, Err: err}
-	}
-	return handle, nil
-}
-
 func expandSandboxVolume(ctx context.Context, path string) error {
 	// Mount the sandbox VHD temporarily.
 	vhdPath := filepath.Join(path, "sandbox.vhdx")
-	vhd, err := attachVhd(vhdPath, 0)
+	vhd, err := vhdx.AttachVhdx(ctx, vhdPath, virtdisk.AttachVirtualDiskFlagNone)
 	if err != nil {
 		return &os.PathError{Op: "OpenVirtualDisk", Path: vhdPath, Err: err}
 	}
-	defer syscall.Close(vhd)
+	defer windows.CloseHandle(vhd)
 
 	// Open the volume.
 	volumePath, err := GetLayerMountPath(ctx, path)

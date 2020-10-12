@@ -22,8 +22,3 @@ type orHKey uintptr
 //sys cimDeletePath(cimFSHandle fsHandle, path string) (hr error) = cimfs.CimDeletePath
 //sys cimCreateHardLink(cimFSHandle fsHandle, newPath string, oldPath string) (hr error) = cimfs.CimCreateHardLink
 //sys cimCreateAlternateStream(cimFSHandle fsHandle, path string, size uint64, cimStreamHandle *streamHandle) (hr error) = cimfs.CimCreateAlternateStream
-
-//sys orMergeHives(hiveHandles []orHKey, result *orHKey) (win32err error) = offreg.ORMergeHives
-//sys orOpenHive(hivePath string, result *orHKey) (win32err error) = offreg.OROpenHive
-//sys orCloseHive(handle orHKey) (win32err error) = offreg.ORCloseHive
-//sys orSaveHive(handle orHKey, hivePath string, osMajorVersion uint32, osMinorVersion uint32) (win32err error) = offreg.ORSaveHive

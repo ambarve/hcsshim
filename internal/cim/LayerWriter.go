@@ -2,6 +2,7 @@ package cim
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -12,13 +13,18 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/go-winio/pkg/security"
 	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
-	"github.com/Microsoft/hcsshim/internal/wclayer"
+	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
+	"github.com/Microsoft/hcsshim/internal/storage"
+	"github.com/Microsoft/hcsshim/internal/vhdx"
+	"github.com/Microsoft/hcsshim/internal/virtdisk"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
+	"golang.org/x/sys/windows"
 )
 
 // A CimLayer consist of cim files (which are usually stored in the `cim-layers` directory and
@@ -89,7 +95,7 @@ func isStdFile(path string) bool {
 
 // Add adds a file to the layer with given metadata.
 func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
-	mylogger.LogFmt("LayerWriter Add: %s, fileInfo: %+v, fileSize: %d\n", name, fileInfo, fileSize)
+	// mylogger.LogFmt("LayerWriter Add: %s, fileInfo: %+v, fileSize: %d\n", name, fileInfo, fileSize)
 	if isStdFile(name) {
 		if err := cw.stdFileWriter.Add(name, fileInfo); err != nil {
 			return err
@@ -113,7 +119,7 @@ func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSi
 func (cw *CimLayerWriter) AddLink(name string, target string) error {
 	name = toNtPath(name)
 	target = toNtPath(target)
-	mylogger.LogFmt("LayerWriter AddLink: name: %s, target: %s\n", name, target)
+	// mylogger.LogFmt("LayerWriter AddLink: name: %s, target: %s\n", name, target)
 	if isStdFile(name) {
 		return cw.stdFileWriter.AddLink(name, target)
 	} else {
@@ -131,7 +137,7 @@ func (cw *CimLayerWriter) AddAlternateStream(name string, size uint64) error {
 
 // Remove removes a file that was present in a parent layer from the layer.
 func (cw *CimLayerWriter) Remove(name string) error {
-	mylogger.LogFmt("LayerWriter Remove: name: %s\n", name)
+	// mylogger.LogFmt("LayerWriter Remove: name: %s\n", name)
 	if isStdFile(name) {
 		return cw.stdFileWriter.Remove(name)
 	} else {
@@ -142,7 +148,7 @@ func (cw *CimLayerWriter) Remove(name string) error {
 // Write writes data to the current file. The data must be in the format of a Win32
 // backup stream.
 func (cw *CimLayerWriter) Write(b []byte) (int, error) {
-	mylogger.LogFmt("LayerWriter write %d bytes\n", len(b))
+	// mylogger.LogFmt("LayerWriter write %d bytes\n", len(b))
 	return cw.activeWriter.Write(b)
 }
 
@@ -235,35 +241,35 @@ func fetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 // merges the hive located at parentHivePath with the hive located at deltaHivePath and stores
 // the result into the file at mergedHivePath
 func mergeHive(parentHivePath, deltaHivePath, mergedHivePath string) (err error) {
-	var baseHive, deltaHive, mergedHive orHKey
-	if err := orOpenHive(parentHivePath, &baseHive); err != nil {
+	var baseHive, deltaHive, mergedHive winapi.OrHKey
+	if err := winapi.OrOpenHive(parentHivePath, &baseHive); err != nil {
 		return fmt.Errorf("failed to open base hive %s: %s", parentHivePath, err)
 	}
 	defer func() {
-		err2 := orCloseHive(baseHive)
+		err2 := winapi.OrCloseHive(baseHive)
 		if err == nil {
 			err = errors.Wrap(err2, "failed to close base hive")
 		}
 	}()
-	if err := orOpenHive(deltaHivePath, &deltaHive); err != nil {
+	if err := winapi.OrOpenHive(deltaHivePath, &deltaHive); err != nil {
 		return fmt.Errorf("failed to open delta hive %s: %s", deltaHivePath, err)
 	}
 	defer func() {
-		err2 := orCloseHive(deltaHive)
+		err2 := winapi.OrCloseHive(deltaHive)
 		if err == nil {
 			err = errors.Wrap(err2, "failed to close delta hive")
 		}
 	}()
-	if err := orMergeHives([]orHKey{baseHive, deltaHive}, &mergedHive); err != nil {
+	if err := winapi.OrMergeHives([]winapi.OrHKey{baseHive, deltaHive}, &mergedHive); err != nil {
 		return fmt.Errorf("failed to merge hives: %s", err)
 	}
 	defer func() {
-		err2 := orCloseHive(mergedHive)
+		err2 := winapi.OrCloseHive(mergedHive)
 		if err == nil {
 			err = errors.Wrap(err2, "failed to close merged hive")
 		}
 	}()
-	if err := orSaveHive(mergedHive, mergedHivePath, uint32(osversion.Get().MajorVersion), uint32(osversion.Get().MinorVersion)); err != nil {
+	if err := winapi.OrSaveHive(mergedHive, mergedHivePath, uint32(osversion.Get().MajorVersion), uint32(osversion.Get().MinorVersion)); err != nil {
 		return fmt.Errorf("failed to save hive: %s", err)
 	}
 	return
@@ -347,8 +353,155 @@ func (cw *CimLayerWriter) createLayoutFile() error {
 	return nil
 }
 
+// baseVhdHandle must be a valid open handle to a vhd if this is a layer of type hcsschema.VmLayer
+// If this is a layer of type hcsschema.ContainerLayer then handle is ignored.
+func setupBaseLayer(ctx context.Context, baseVhdHandle windows.Handle, layerPath string, layerType hcsschema.OsLayerType) error {
+	layerOptions := hcsschema.OsLayerOptions{
+		Type_:                      layerType,
+		DisableCiCacheOptimization: true,
+		SkipUpdateBcdForBoot:       (layerType == hcsschema.VmLayer),
+	}
+
+	if layerType == hcsschema.ContainerLayer {
+		baseVhdHandle = 0
+	}
+
+	layerOptionsJson, err := json.Marshal(layerOptions)
+	if err != nil {
+		return fmt.Errorf("failed to marshal layer options: %s", err)
+	}
+
+	if err := storage.SetupBaseOSLayer(ctx, layerPath, baseVhdHandle, string(layerOptionsJson)); err != nil {
+		return fmt.Errorf("failed to setup base os layer: %s", err)
+	}
+
+	return nil
+}
+
+func createDiffVhd(ctx context.Context, diffVhdPath, baseVhdPath string) error {
+	// create the differencing disk
+	createParams := &virtdisk.CreateVirtualDiskParameters{
+		Version: 2,
+		Version2: virtdisk.CreateVersion2{
+			ParentPath:       windows.StringToUTF16Ptr(baseVhdPath),
+			BlockSizeInBytes: 1 * 1024 * 1024,
+			OpenFlags:        uint32(virtdisk.OpenVirtualDiskFlagCachedIO),
+		},
+	}
+
+	vhdHandle, err := virtdisk.CreateVirtualDisk(ctx, diffVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
+	if err != nil {
+		return fmt.Errorf("failed to create differencing vhd: %s", err)
+	}
+	if err := windows.CloseHandle(vhdHandle); err != nil {
+		return fmt.Errorf("failed to close differencing vhd handle: %s", err)
+	}
+	return nil
+}
+
+// TODO(ambarve): Danny has already created a PR to add all of the new HCS storage APIs.
+// rebase with that PR instead
+func setupContainerBaseLayer(ctx context.Context, layerPath string) error {
+	baseVhdPath := filepath.Join(layerPath, "blank-base.vhdx")
+	diffVhdPath := filepath.Join(layerPath, "blank.vhdx")
+
+	createParams := &virtdisk.CreateVirtualDiskParameters{
+		Version: 2,
+		Version2: virtdisk.CreateVersion2{
+			MaximumSize:      uint64(20) * 1024 * 1024 * 1024,
+			BlockSizeInBytes: 1 * 1024 * 1024,
+		},
+	}
+
+	handle, err := virtdisk.CreateVirtualDisk(ctx, baseVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
+	if err != nil {
+		return fmt.Errorf("failed to create VHD: %s", err)
+	}
+
+	if err = storage.FormatWritableLayerVhd(ctx, handle); err != nil {
+		return errors.Wrap(err, "failed to format VHD")
+	}
+
+	// base vhd handle must be closed before calling SetupBaseLayer in case of Container layer
+	if err = windows.CloseHandle(handle); err != nil {
+		return fmt.Errorf("failed to close VHD handle : %s", err)
+	}
+
+	if err = setupBaseLayer(ctx, handle, layerPath, hcsschema.ContainerLayer); err != nil {
+		return err
+	}
+
+	if err = createDiffVhd(ctx, diffVhdPath, baseVhdPath); err != nil {
+		return err
+	}
+
+	if err := security.GrantVmGroupAccess(baseVhdPath); err != nil {
+		return fmt.Errorf("failed to grant vm group access to %s: %s", baseVhdPath, err)
+	}
+
+	if err := security.GrantVmGroupAccess(diffVhdPath); err != nil {
+		return fmt.Errorf("failed to grant vm group access to %s: %s", diffVhdPath, err)
+	}
+	return nil
+}
+
+func setupUtilityVMBaseLayer(ctx context.Context, layerPath, vhdCreationPath string) error {
+	baseVhdPath := filepath.Join(vhdCreationPath, "SystemTemplateBase.vhdx")
+	diffVhdPath := filepath.Join(vhdCreationPath, "SystemTemplate.vhdx")
+
+	// Just create the vhd for utilityVM layer, no need to format it.
+	createParams := &virtdisk.CreateVirtualDiskParameters{
+		Version: 2,
+		Version2: virtdisk.CreateVersion2{
+			MaximumSize:      uint64(10) * 1024 * 1024 * 1024,
+			BlockSizeInBytes: 1 * 1024 * 1024,
+		},
+	}
+
+	handle, err := virtdisk.CreateVirtualDisk(ctx, baseVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
+	if err != nil {
+		return fmt.Errorf("failed to create VHD: %s", err)
+	}
+
+	// If it is a utilityVM layer then the base vhd must be attached when calling
+	// SetupBaseOSLayer
+	attachParams := &virtdisk.AttachVirtualDiskParameters{
+		Version: 2,
+	}
+	err = virtdisk.AttachVirtualDisk(ctx, handle, virtdisk.AttachVirtualDiskFlagNone, attachParams)
+	if err != nil {
+		return err
+	}
+
+	if err = setupBaseLayer(ctx, handle, layerPath, hcsschema.VmLayer); err != nil {
+		return err
+	}
+
+	if err = virtdisk.DetachVirtualDisk(ctx, handle); err != nil {
+		return fmt.Errorf("failed to detach VHD: %s", err)
+	}
+
+	if err = windows.CloseHandle(handle); err != nil {
+		return fmt.Errorf("failed to close VHD handle: %s", err)
+	}
+
+	if err = createDiffVhd(ctx, diffVhdPath, baseVhdPath); err != nil {
+		return err
+	}
+
+	if err := security.GrantVmGroupAccess(baseVhdPath); err != nil {
+		return fmt.Errorf("failed to grant vm group access to %s: %s", baseVhdPath, err)
+	}
+
+	if err := security.GrantVmGroupAccess(diffVhdPath); err != nil {
+		return fmt.Errorf("failed to grant vm group access to %s: %s", diffVhdPath, err)
+	}
+
+	return nil
+}
+
 // Close finishes the layer writing process and releases any resources.
-func (cw *CimLayerWriter) Close(ctx context.Context) error {
+func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 	mylogger.LogFmt("closing layer %s, parent layers: %v\n", cw.path, cw.parentLayerPaths)
 	if err := cw.stdFileWriter.Close(ctx); err != nil {
 		return err
@@ -369,11 +522,13 @@ func (cw *CimLayerWriter) Close(ctx context.Context) error {
 		if err := cw.createPlaceholderHivesForBaseLayer(cw.path); err != nil {
 			return err
 		}
-		if err := wclayer.ProcessImageEx(ctx, cw.path, wclayer.ImageTypeBase, 20, wclayer.ProcessImage_NoOptions, cw.path); err != nil {
-			return err
+		if err := setupContainerBaseLayer(ctx, cw.path); err != nil {
+			return fmt.Errorf("failed to setup container base layer: %s", err)
 		}
 	} else {
 		// TODO(ambarve): We probably should reapply the timestamps for the hives directory.
+		// TODO(ambarve): We merge registry files here but utility vm folder has created hard links
+		// to some of the registry files earlier. Will they continue to work?
 		if err := cw.mergeWithParentLayerHives(GetCimPathFromLayer(cw.parentLayerPaths[0])); err != nil {
 			return err
 		}
@@ -387,51 +542,27 @@ func (cw *CimLayerWriter) Close(ctx context.Context) error {
 		return err
 	}
 
-	// Mount the cim here and call process utility image
-	layerGUID, err := guid.NewV4()
+	mountpath, err := Mount(GetCimPathFromLayer(cw.path))
 	if err != nil {
-		return fmt.Errorf("error creating guid: %s", err)
+		return fmt.Errorf("failed to mount cim : %s", err)
 	}
-	if err := cimMountImage(GetCimDirFromLayer(cw.path), GetCimNameFromLayer(cw.path), 0, &layerGUID); err != nil {
-		return fmt.Errorf("failed to mount cim at: %s:%s\n", GetCimDirFromLayer(cw.path), GetCimNameFromLayer(cw.path))
+	mylogger.LogFmt("mounting cim: %s at volume: %s\n", GetCimNameFromLayer(cw.path), mountpath)
+	if err := setupUtilityVMBaseLayer(ctx, filepath.Join(mountpath, utilityVMPath), filepath.Join(cw.path, utilityVMPath)); err != nil {
+		return fmt.Errorf("failed to setup utility vm base layer: %s", err)
 	}
-
-	if err := wclayer.ProcessImageEx(ctx, filepath.Join(fmt.Sprintf("\\\\?\\Volume{%s}", layerGUID), utilityVMPath), wclayer.ImageTypeUtility, 20, wclayer.ProcessImage_SkipUpdateBcdForBoot|wclayer.ProcessImage_NoOptimizeCiCache, filepath.Join(cw.path, utilityVMPath)); err != nil {
-		return err
-	}
-	if err := cimDismountImage(&layerGUID); err != nil {
+	if err := UnMount(GetCimPathFromLayer(cw.path)); err != nil {
 		return fmt.Errorf("failed to dismount cim: %s", err)
 	}
 
-	diskID, partitionID, err := wclayer.GetScratchDriveDiskIDPartitionID(ctx, filepath.Join(cw.path, utilityVMPath, utilityVMBaseVhd))
+	partitionInfo, err := vhdx.GetScratchVhdPartitionInfo(ctx, filepath.Join(cw.path, utilityVMPath, utilityVMBaseVhd))
 	if err != nil {
 		fmt.Errorf("failed to get base vhd layout info: %s", err)
 	}
 
-	diskIDGUID, err := guid.FromString(diskID)
-	if err != nil {
-		return fmt.Errorf("error parsing uuid(%s): %s", diskID, err)
-	}
-	partitionGUID, err := guid.FromString(partitionID)
-	if err != nil {
-		return fmt.Errorf("error parsing uuid(%s): %s", partitionID, err)
-	}
-
 	// Update the BCD for utility VM image and write it inside the cim
-	if err := wclayer.UpdateBcdStoreForBoot(ctx, filepath.Join(cw.path, utilityVMFilesPath), diskIDGUID, partitionGUID); err != nil {
+	if err := UpdateBcdStoreForBoot(filepath.Join(cw.path, utilityVMPath), partitionInfo.DiskID, partitionInfo.PartitionID); err != nil {
 		return fmt.Errorf("failed to update BCD: %s", err)
 	}
-
-	// //TODO(ambarve): rmeove this. only adding for debugging
-	// cmd := exec.Command("bcdedit.exe", "/store", filepath.Join(cw.path, utilityVMFilesPath, "EFI\\Microsoft\\Boot\\BCD"), "/set", "{default}", "debug", "on")
-	// var out bytes.Buffer
-	// cmd.Stdout = &out
-	// err = cmd.Run()
-	// if err != nil {
-	// 	mylogger.LogFmt("failed to setup bcd: %s", err)
-	// } else {
-	// 	mylogger.LogFmt("output : %q\n", out.String())
-	// }
 
 	// open cim again
 	reopenedCim, err := create(GetCimDirFromLayer(cw.path), GetCimNameFromLayer(cw.path), "")
@@ -448,6 +579,7 @@ func (cw *CimLayerWriter) Close(ctx context.Context) error {
 	if err := reopenedCim.close(); err != nil {
 		return fmt.Errorf("failed to close stream: %s", err)
 	}
+
 	return nil
 }
 

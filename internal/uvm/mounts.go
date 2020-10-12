@@ -84,7 +84,7 @@ func (uvm *UtilityVM) MountInUVM(ctx context.Context, hostCimPath string) (_ str
 	return fmt.Sprintf("\\\\?\\Volume{%s}", ci.cimID), nil
 }
 
-// Returns the NT path ("\Devices\cimfs\{GUID}" format) at which the cim at hostCimPath is mounted
+// Returns the path ("\\?\Volume{GUID}\" format) at which the cim at hostCimPath is mounted
 // inside the uvm.
 // Throws an error if the given cim is not mounted.
 func (uvm *UtilityVM) GetCimUvmMountPathNt(hostCimPath string) (string, error) {
