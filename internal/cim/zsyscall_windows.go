@@ -88,7 +88,7 @@ func cimDismountImage(volumeID *g) (hr error) {
 	return
 }
 
-func cimCreateImage(imagePath string, oldFSName *uint16, newFSName *uint16, cimFSHandle *fsHandle) (hr error) {
+func cimCreateImage(imagePath string, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(imagePath)
 	if hr != nil {
@@ -97,7 +97,7 @@ func cimCreateImage(imagePath string, oldFSName *uint16, newFSName *uint16, cimF
 	return _cimCreateImage(_p0, oldFSName, newFSName, cimFSHandle)
 }
 
-func _cimCreateImage(imagePath *uint16, oldFSName *uint16, newFSName *uint16, cimFSHandle *fsHandle) (hr error) {
+func _cimCreateImage(imagePath *uint16, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
 	r0, _, _ := syscall.Syscall6(procCimCreateImage.Addr(), 4, uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(oldFSName)), uintptr(unsafe.Pointer(newFSName)), uintptr(unsafe.Pointer(cimFSHandle)), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -108,7 +108,7 @@ func _cimCreateImage(imagePath *uint16, oldFSName *uint16, newFSName *uint16, ci
 	return
 }
 
-func cimCloseImage(cimFSHandle fsHandle) (hr error) {
+func cimCloseImage(cimFSHandle FsHandle) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimCloseImage.Addr(), 1, uintptr(cimFSHandle), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -119,7 +119,7 @@ func cimCloseImage(cimFSHandle fsHandle) (hr error) {
 	return
 }
 
-func cimCommitImage(cimFSHandle fsHandle) (hr error) {
+func cimCommitImage(cimFSHandle FsHandle) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimCommitImage.Addr(), 1, uintptr(cimFSHandle), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -130,7 +130,7 @@ func cimCommitImage(cimFSHandle fsHandle) (hr error) {
 	return
 }
 
-func cimCreateFile(cimFSHandle fsHandle, path string, file *cimFsFileMetadata, cimStreamHandle *streamHandle) (hr error) {
+func cimCreateFile(cimFSHandle FsHandle, path string, file *cimFsFileMetadata, cimStreamHandle *StreamHandle) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(path)
 	if hr != nil {
@@ -139,7 +139,7 @@ func cimCreateFile(cimFSHandle fsHandle, path string, file *cimFsFileMetadata, c
 	return _cimCreateFile(cimFSHandle, _p0, file, cimStreamHandle)
 }
 
-func _cimCreateFile(cimFSHandle fsHandle, path *uint16, file *cimFsFileMetadata, cimStreamHandle *streamHandle) (hr error) {
+func _cimCreateFile(cimFSHandle FsHandle, path *uint16, file *cimFsFileMetadata, cimStreamHandle *StreamHandle) (hr error) {
 	r0, _, _ := syscall.Syscall6(procCimCreateFile.Addr(), 4, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(cimStreamHandle)), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -150,7 +150,7 @@ func _cimCreateFile(cimFSHandle fsHandle, path *uint16, file *cimFsFileMetadata,
 	return
 }
 
-func cimCloseStream(cimStreamHandle streamHandle) (hr error) {
+func cimCloseStream(cimStreamHandle StreamHandle) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimCloseStream.Addr(), 1, uintptr(cimStreamHandle), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -161,7 +161,7 @@ func cimCloseStream(cimStreamHandle streamHandle) (hr error) {
 	return
 }
 
-func cimWriteStream(cimStreamHandle streamHandle, buffer uintptr, bufferSize uint32) (hr error) {
+func cimWriteStream(cimStreamHandle StreamHandle, buffer uintptr, bufferSize uint32) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimWriteStream.Addr(), 3, uintptr(cimStreamHandle), uintptr(buffer), uintptr(bufferSize))
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -172,7 +172,7 @@ func cimWriteStream(cimStreamHandle streamHandle, buffer uintptr, bufferSize uin
 	return
 }
 
-func cimDeletePath(cimFSHandle fsHandle, path string) (hr error) {
+func cimDeletePath(cimFSHandle FsHandle, path string) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(path)
 	if hr != nil {
@@ -181,7 +181,7 @@ func cimDeletePath(cimFSHandle fsHandle, path string) (hr error) {
 	return _cimDeletePath(cimFSHandle, _p0)
 }
 
-func _cimDeletePath(cimFSHandle fsHandle, path *uint16) (hr error) {
+func _cimDeletePath(cimFSHandle FsHandle, path *uint16) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimDeletePath.Addr(), 2, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -192,7 +192,7 @@ func _cimDeletePath(cimFSHandle fsHandle, path *uint16) (hr error) {
 	return
 }
 
-func cimCreateHardLink(cimFSHandle fsHandle, newPath string, oldPath string) (hr error) {
+func cimCreateHardLink(cimFSHandle FsHandle, newPath string, oldPath string) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(newPath)
 	if hr != nil {
@@ -206,7 +206,7 @@ func cimCreateHardLink(cimFSHandle fsHandle, newPath string, oldPath string) (hr
 	return _cimCreateHardLink(cimFSHandle, _p0, _p1)
 }
 
-func _cimCreateHardLink(cimFSHandle fsHandle, newPath *uint16, oldPath *uint16) (hr error) {
+func _cimCreateHardLink(cimFSHandle FsHandle, newPath *uint16, oldPath *uint16) (hr error) {
 	r0, _, _ := syscall.Syscall(procCimCreateHardLink.Addr(), 3, uintptr(cimFSHandle), uintptr(unsafe.Pointer(newPath)), uintptr(unsafe.Pointer(oldPath)))
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
@@ -217,7 +217,7 @@ func _cimCreateHardLink(cimFSHandle fsHandle, newPath *uint16, oldPath *uint16) 
 	return
 }
 
-func cimCreateAlternateStream(cimFSHandle fsHandle, path string, size uint64, cimStreamHandle *streamHandle) (hr error) {
+func cimCreateAlternateStream(cimFSHandle FsHandle, path string, size uint64, cimStreamHandle *StreamHandle) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(path)
 	if hr != nil {
@@ -226,7 +226,7 @@ func cimCreateAlternateStream(cimFSHandle fsHandle, path string, size uint64, ci
 	return _cimCreateAlternateStream(cimFSHandle, _p0, size, cimStreamHandle)
 }
 
-func _cimCreateAlternateStream(cimFSHandle fsHandle, path *uint16, size uint64, cimStreamHandle *streamHandle) (hr error) {
+func _cimCreateAlternateStream(cimFSHandle FsHandle, path *uint16, size uint64, cimStreamHandle *StreamHandle) (hr error) {
 	r0, _, _ := syscall.Syscall6(procCimCreateAlternateStream.Addr(), 4, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), uintptr(size), uintptr(unsafe.Pointer(cimStreamHandle)), 0, 0)
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {

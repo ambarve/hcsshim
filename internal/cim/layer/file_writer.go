@@ -1,4 +1,4 @@
-package cim
+package layer
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"syscall"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/safefile"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
@@ -48,7 +47,6 @@ func newStdFileWriter(root string, parentRoots []string) (sfw *stdFileWriter, er
 
 func (sfw *stdFileWriter) closeActiveFile() (err error) {
 	if sfw.activeFile != nil {
-		mylogger.LogFmt("closing currently active file\n")
 		err = sfw.activeFile.Close()
 		sfw.activeFile = nil
 	}
@@ -110,7 +108,7 @@ func (sfw *stdFileWriter) Write(b []byte) (int, error) {
 // Close finishes the layer writing process and releases any resources.
 func (sfw *stdFileWriter) Close(ctx context.Context) error {
 	if err := sfw.closeActiveFile(); err != nil {
-		return err
+		return fmt.Errorf("failed to close active file %s : %s", sfw.activeFile.Name(), err)
 	}
 	return nil
 }

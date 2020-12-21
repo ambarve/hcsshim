@@ -14,6 +14,9 @@ const (
 
 	// 100ns units between Windows NT epoch (Jan 1 1601) and Unix epoch (Jan 1 1970)
 	epochDelta = 116444736000000000
+
+	// The name assigned to the vsmb share which shares the cim directory inside the uvm.
+	CimVsmbShareName = "bootcimdir"
 )
 
 var (

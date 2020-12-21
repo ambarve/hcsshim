@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/Microsoft/hcsshim/osversion"
 )
@@ -36,7 +36,7 @@ func DeactivateLayer(info DriverInfo, id string) error {
 
 func DestroyLayer(info DriverInfo, id string) error {
 	if osversion.Build() >= osversion.IRON_BUILD {
-		return cim.DestroyCimLayer(context.Background(), layerPath(&info, id))
+		return cimlayer.DestroyCimLayer(context.Background(), layerPath(&info, id))
 	} else {
 		return wclayer.DestroyLayer(context.Background(), layerPath(&info, id))
 	}
@@ -113,9 +113,9 @@ func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) 
 
 }
 
-func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cim.CimLayerWriter, error) {
+func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cimlayer.CimLayerWriter, error) {
 	if osversion.Build() >= osversion.IRON_BUILD {
-		return cim.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
+		return cimlayer.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
 	} else {
 		return nil, fmt.Errorf("cim layers needs builds %d and above, current build: %d", osversion.IRON_BUILD, osversion.Build())
 	}

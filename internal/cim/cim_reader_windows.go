@@ -12,7 +12,7 @@ import (
 	"sync"
 
 	winio "github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/cim/format"
+	"github.com/Microsoft/hcsshim/internal/cim/layer/format"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"golang.org/x/sys/windows"
 )
@@ -965,39 +965,9 @@ func GetObjectIdFilePaths(cimPath string) ([]string, error) {
 	return paths, nil
 }
 
-func destroyCim(cimPath string) error {
-	// Find out the region files, object files of this cim and then delete
-	// the region files, object files and the <layer-id>.cim file itself.
-	regionFilePaths, err := GetRegionFilePaths(cimPath)
-	if err != nil {
-		return fmt.Errorf("failed while destroying cim %s, unable to get region files: %s", cimPath, err)
-	}
-	objectFilePaths, err := GetObjectIdFilePaths(cimPath)
-	if err != nil {
-		return fmt.Errorf("failed while destroying cim %s, unable to get object ID files: %s", cimPath, err)
-	}
-
-	for _, regFilePath := range regionFilePaths {
-		if err := os.Remove(regFilePath); err != nil {
-			return fmt.Errorf("failure while destroying region file %s : %s", regFilePath, err)
-		}
-	}
-
-	for _, objFilePath := range objectFilePaths {
-		if err := os.Remove(objFilePath); err != nil {
-			return fmt.Errorf("failure while destroying object file %s : %s", objFilePath, err)
-		}
-	}
-
-	if err := os.Remove(cimPath); err != nil {
-		return fmt.Errorf("failure while destroying cim file %s : %s", cimPath, err)
-	}
-	return nil
-}
-
 // fetchFileFromCim is an utility function that reads the file at path `filePath` inside
 // the cim `cimPath` and copies it at `destinationPath`.
-func fetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
+func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 	// open the cim file and read it.
 	cimReader, err := Open(cimPath)
 	if err != nil {

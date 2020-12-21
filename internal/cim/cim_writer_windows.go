@@ -9,30 +9,28 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"golang.org/x/sys/windows"
 )
 
-type fsHandle uintptr
-type streamHandle uintptr
-
-// cimFsWriter represents a writer to a single CimFS filesystem instance. On disk, the image is
+// CimFsWriter represents a writer to a single CimFS filesystem instance. On disk, the image is
 // composed of a filesystem file and several object ID and region files.
-type cimFsWriter struct {
+type CimFsWriter struct {
 	// name of this cim. Usually a <name>.cim file will be created to represent this cim.
 	name string
 	// handle is the CIMFS_IMAGE_HANDLE that must be passed when calling CIMFS APIs.
-	handle fsHandle
+	handle FsHandle
 	// name of the active file i.e the file to which we are currently writing.
 	activeName string
 	// stream to currently active file.
-	activeStream streamHandle
+	activeStream StreamHandle
 	// amount of bytes that can be written to the activeStream.
 	activeLeft int64
 }
 
 // creates a new cim image. The handle returned in the `cim.handle` variable can then
 // be used to do operations on this cim.
-func create(imagePath string, oldFSName string, newFSName string) (_ *cimFsWriter, err error) {
+func Create(imagePath string, oldFSName string, newFSName string) (_ *CimFsWriter, err error) {
 	var oldNameBytes *uint16
 	fsName := oldFSName
 	if oldFSName != "" {
@@ -49,18 +47,18 @@ func create(imagePath string, oldFSName string, newFSName string) (_ *cimFsWrite
 			return nil, err
 		}
 	}
-	var handle fsHandle
+	var handle FsHandle
 	if err := cimCreateImage(imagePath, oldNameBytes, newNameBytes, &handle); err != nil {
 		return nil, err
 	}
-	return &cimFsWriter{handle: handle, name: filepath.Join(imagePath, fsName)}, nil
+	return &CimFsWriter{handle: handle, name: filepath.Join(imagePath, fsName)}, nil
 }
 
 // creates alternate stream of given size at the given path
 // relative to the cim path. This will replace the current active
 // stream. Always, finish writing current active stream and then
 // create an alternate stream.
-func (c *cimFsWriter) createAlternateStream(path string, size uint64) (err error) {
+func (c *CimFsWriter) CreateAlternateStream(path string, size uint64) (err error) {
 	err = c.closeStream()
 	if err != nil {
 		return err
@@ -73,7 +71,7 @@ func (c *cimFsWriter) createAlternateStream(path string, size uint64) (err error
 }
 
 // closes the currently active stream
-func (c *cimFsWriter) closeStream() error {
+func (c *CimFsWriter) closeStream() error {
 	if c.activeStream == 0 {
 		return nil
 	}
@@ -93,10 +91,10 @@ func (c *cimFsWriter) closeStream() error {
 	return err
 }
 
-// addFile adds a new file to the image. The file is added at the
+// AddFile adds a new file to the image. The file is added at the
 // specified path. After calling this function, the file is set as the active
 // stream for the image, so data can be written by calling `Write`.
-func (c *cimFsWriter) addFile(path string, info *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+func (c *CimFsWriter) AddFile(path string, info *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
 	err := c.closeStream()
 	if err != nil {
 		return err
@@ -141,7 +139,7 @@ func (c *cimFsWriter) addFile(path string, info *winio.FileBasicInfo, fileSize i
 // This is a helper function which reads the file on host at path `hostPath` and adds it inside
 // the cim at path `pathInCim`. If a file already exists inside cim at path `pathInCim` it will be
 // overwritten.
-func (c *cimFsWriter) addFileFromPath(pathInCim, hostPath string, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+func (c *CimFsWriter) AddFileFromPath(pathInCim, hostPath string, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
 	f, err := os.Open(hostPath)
 	if err != nil {
 		return fmt.Errorf("failure when opening file at %s: %s", hostPath, err)
@@ -157,8 +155,8 @@ func (c *cimFsWriter) addFileFromPath(pathInCim, hostPath string, securityDescri
 	if err != nil {
 		return fmt.Errorf("failed to read replacement file at %s : %s", hostPath, err)
 	}
-
-	if err := c.addFile(pathInCim, basicInfo, int64(len(replaceData)), securityDescriptor, extendedAttributes, reparseData); err != nil {
+	mylogger.LogFmt("cim AddFileFromPath name: %s, info: %+v, size: %d, len sddl: %d, len ea: %d, len reparse: %d\n", pathInCim, basicInfo, len(replaceData), len(securityDescriptor), len(extendedAttributes), len(reparseData))
+	if err := c.AddFile(pathInCim, basicInfo, int64(len(replaceData)), securityDescriptor, extendedAttributes, reparseData); err != nil {
 		return err
 	}
 
@@ -169,7 +167,7 @@ func (c *cimFsWriter) addFileFromPath(pathInCim, hostPath string, securityDescri
 }
 
 // write writes bytes to the active stream.
-func (c *cimFsWriter) Write(p []byte) (int, error) {
+func (c *CimFsWriter) Write(p []byte) (int, error) {
 	if c.activeStream == 0 {
 		return 0, errors.New("no active stream")
 	}
@@ -188,7 +186,7 @@ func (c *cimFsWriter) Write(p []byte) (int, error) {
 // Link adds a hard link from `oldPath` to `newPath` in the image.
 // TODO(ambarve): there is a bug in cimfs hard link implementation that it will always
 // show the number of hard links to be 1 even if there are more.
-func (c *cimFsWriter) addLink(oldPath string, newPath string) error {
+func (c *CimFsWriter) AddLink(oldPath string, newPath string) error {
 	err := c.closeStream()
 	if err != nil {
 		return err
@@ -200,8 +198,8 @@ func (c *cimFsWriter) addLink(oldPath string, newPath string) error {
 	return err
 }
 
-// unlink deletes the file at `path` from the image.
-func (c *cimFsWriter) unlink(path string) error {
+// Unlink deletes the file at `path` from the image.
+func (c *CimFsWriter) Unlink(path string) error {
 	err := c.closeStream()
 	if err != nil {
 		return err
@@ -213,7 +211,7 @@ func (c *cimFsWriter) unlink(path string) error {
 	return err
 }
 
-func (c *cimFsWriter) commit() error {
+func (c *CimFsWriter) commit() error {
 	err := c.closeStream()
 	if err != nil {
 		return err
@@ -225,8 +223,8 @@ func (c *cimFsWriter) commit() error {
 	return err
 }
 
-// close closes the CimFS filesystem.
-func (c *cimFsWriter) close() error {
+// Close closes the CimFS filesystem.
+func (c *CimFsWriter) Close() error {
 	if c.handle == 0 {
 		return errors.New("invalid writer")
 	}
@@ -237,5 +235,35 @@ func (c *cimFsWriter) close() error {
 		return &OpError{Cim: c.name, Op: "close", Err: err}
 	}
 	c.handle = 0
+	return nil
+}
+
+// DestroyCim finds out the region files, object files of this cim and then delete
+// the region files, object files and the <layer-id>.cim file itself.
+func DestroyCim(cimPath string) error {
+	regionFilePaths, err := GetRegionFilePaths(cimPath)
+	if err != nil {
+		return fmt.Errorf("failed while destroying cim %s, unable to get region files: %s", cimPath, err)
+	}
+	objectFilePaths, err := GetObjectIdFilePaths(cimPath)
+	if err != nil {
+		return fmt.Errorf("failed while destroying cim %s, unable to get object ID files: %s", cimPath, err)
+	}
+
+	for _, regFilePath := range regionFilePaths {
+		if err := os.Remove(regFilePath); err != nil {
+			return fmt.Errorf("failure while destroying region file %s : %s", regFilePath, err)
+		}
+	}
+
+	for _, objFilePath := range objectFilePaths {
+		if err := os.Remove(objFilePath); err != nil {
+			return fmt.Errorf("failure while destroying object file %s : %s", objFilePath, err)
+		}
+	}
+
+	if err := os.Remove(cimPath); err != nil {
+		return fmt.Errorf("failure while destroying cim file %s : %s", cimPath, err)
+	}
 	return nil
 }

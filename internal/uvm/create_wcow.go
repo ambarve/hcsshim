@@ -198,7 +198,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	// Align the requested memory size.
 	memorySizeInMB := uvm.normalizeMemorySize(ctx, opts.MemorySizeInMB)
 
-	// UVM rootfs share is readonly.
+	// UVM rootfs share & bootcim shares are readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
 	vsmbOpts.NoDirectmap = false
@@ -208,6 +208,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 			{
 				Name:    "os",
 				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
+				Options: vsmbOpts,
+			},
+			{
+				Name:    cim.CimVsmbShareName,
+				Path:    cim.GetCimDirFromLayer(opts.LayerFolders[0]),
 				Options: vsmbOpts,
 			},
 		},

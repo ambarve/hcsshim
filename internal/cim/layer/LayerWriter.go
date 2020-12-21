@@ -1,17 +1,17 @@
-package cim
+package layer
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/security"
+	"github.com/Microsoft/hcsshim/internal/cim"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
@@ -39,7 +39,7 @@ type CimLayerWriter struct {
 	// parent layer paths
 	parentLayerPaths []string
 	// Handle to the layer cim - writes to the cim file
-	cimWriter *cimFsWriter
+	cimWriter *cim.CimFsWriter
 	// Handle to the writer for writing files in the local filesystem
 	stdFileWriter *stdFileWriter
 	// reference to currently active writer either cimWriter or stdFileWriter
@@ -92,13 +92,14 @@ func isStdFile(path string) bool {
 
 // Add adds a file to the layer with given metadata.
 func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+	// mylogger.LogStruct(fmt.Sprintf("CimLayer Add name: %s, fileSize: %d, sec desc len: %d, ea len: %d, reparse len: %d : ", name, fileSize, len(securityDescriptor), len(extendedAttributes), len(reparseData)), fileInfo)
 	if isStdFile(name) {
 		if err := cw.stdFileWriter.Add(name); err != nil {
 			return err
 		}
 		cw.activeWriter = cw.stdFileWriter
 	} else {
-		if err := cw.cimWriter.addFile(name, fileInfo, fileSize, securityDescriptor, extendedAttributes, reparseData); err != nil {
+		if err := cw.cimWriter.AddFile(name, fileInfo, fileSize, securityDescriptor, extendedAttributes, reparseData); err != nil {
 			return err
 		}
 		cw.activeWriter = cw.cimWriter
@@ -111,7 +112,7 @@ func (cw *CimLayerWriter) AddLink(name string, target string) error {
 	if isStdFile(name) {
 		return cw.stdFileWriter.AddLink(name, target)
 	} else {
-		return cw.cimWriter.addLink(target, name)
+		return cw.cimWriter.AddLink(target, name)
 	}
 }
 
@@ -124,7 +125,7 @@ func (cw *CimLayerWriter) AddAlternateStream(name string, size uint64) error {
 		}
 		cw.activeWriter = cw.stdFileWriter
 	} else {
-		if err := cw.cimWriter.createAlternateStream(name, size); err != nil {
+		if err := cw.cimWriter.CreateAlternateStream(name, size); err != nil {
 			return err
 		}
 		cw.activeWriter = cw.cimWriter
@@ -137,7 +138,7 @@ func (cw *CimLayerWriter) Remove(name string) error {
 	if isStdFile(name) {
 		return cw.stdFileWriter.Remove(name)
 	} else {
-		return cw.cimWriter.unlink(name)
+		return cw.cimWriter.Unlink(name)
 	}
 }
 
@@ -145,52 +146,6 @@ func (cw *CimLayerWriter) Remove(name string) error {
 // backup stream.
 func (cw *CimLayerWriter) Write(b []byte) (int, error) {
 	return cw.activeWriter.Write(b)
-}
-
-// mergeWithParentLayerHives merges the delta hives of current layer with the registry
-// hives of its parent layer.
-func (cw *CimLayerWriter) mergeWithParentLayerHives(parentCimPath string) error {
-	// create a temp directory to store parent layer hive files
-	tmpParentLayer, err := ioutil.TempDir("", "")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %s", tmpParentLayer)
-	}
-	defer os.RemoveAll(tmpParentLayer)
-
-	// create a temp directory to create merged hive files of the current layer
-	tmpCurrentLayer, err := ioutil.TempDir("", "")
-	if err != nil {
-		return fmt.Errorf("failed to create temp dir: %s", tmpCurrentLayer)
-	}
-	defer os.RemoveAll(tmpCurrentLayer)
-
-	for _, hv := range hives {
-		err := fetchFileFromCim(parentCimPath, filepath.Join(hivesPath, hv.base), filepath.Join(tmpParentLayer, hv.base))
-		if err != nil {
-			return err
-		}
-	}
-
-	// merge hives
-	for _, hv := range hives {
-		err := mergeHive(filepath.Join(tmpParentLayer, hv.base), filepath.Join(cw.path, hivesPath, hv.delta), filepath.Join(tmpCurrentLayer, hv.base))
-		if err != nil {
-			return err
-		}
-	}
-
-	// add merged hives into the cim layer
-	mergedHives, err := ioutil.ReadDir(tmpCurrentLayer)
-	if err != nil {
-		return fmt.Errorf("failed to enumerate hive files: %s", err)
-	}
-	for _, hv := range mergedHives {
-		cimHivePath := filepath.Join(hivesPath, hv.Name())
-		if err := cw.cimWriter.addFileFromPath(cimHivePath, filepath.Join(tmpCurrentLayer, hv.Name()), []byte{}, []byte{}, []byte{}); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // baseVhdHandle must be a valid open handle to a vhd if this is a layer of type hcsschema.VmLayer
@@ -361,11 +316,11 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 		return err
 	}
 
-	if err := cw.cimWriter.close(); err != nil {
+	// cimWriter must be closed before doing any further processing on this layer.
+	if err := cw.cimWriter.Close(); err != nil {
 		return err
 	}
 
-	// if this is a base layer then setup the hives folder as well
 	if len(cw.parentLayerPaths) == 0 {
 		if err := processBaseLayer(ctx, cw.path); err != nil {
 			return fmt.Errorf("processBaseLayer failed: %s", err)
@@ -378,8 +333,8 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 		// TODO(ambarve): We probably should reapply the timestamps for the hives directory.
 		// TODO(ambarve): We merge registry files here but utility vm folder has created hard links
 		// to some of the registry files earlier. Will they continue to work?
-		if err := cw.mergeWithParentLayerHives(GetCimPathFromLayer(cw.parentLayerPaths[0])); err != nil {
-			return err
+		if err := processNonBaseLayer(ctx, cw.path, cw.parentLayerPaths); err != nil {
+			return fmt.Errorf("failed to process layer: %s", err)
 		}
 	}
 
@@ -401,7 +356,7 @@ func NewCimLayerWriter(ctx context.Context, path string, parentLayerPaths []stri
 		trace.StringAttribute("parentLayerPaths", strings.Join(parentLayerPaths, ", ")))
 
 	parentCim := ""
-	cimDirPath := GetCimDirFromLayer(path)
+	cimDirPath := cim.GetCimDirFromLayer(path)
 	if _, err = os.Stat(cimDirPath); os.IsNotExist(err) {
 		// create cim directory
 		if err = os.Mkdir(cimDirPath, 0755); err != nil {
@@ -413,10 +368,10 @@ func NewCimLayerWriter(ctx context.Context, path string, parentLayerPaths []stri
 	}
 
 	if len(parentLayerPaths) > 0 {
-		parentCim = GetCimNameFromLayer(parentLayerPaths[0])
+		parentCim = cim.GetCimNameFromLayer(parentLayerPaths[0])
 	}
 
-	cim, err := create(GetCimDirFromLayer(path), parentCim, GetCimNameFromLayer(path))
+	cim, err := cim.Create(cim.GetCimDirFromLayer(path), parentCim, cim.GetCimNameFromLayer(path))
 	if err != nil {
 		return nil, fmt.Errorf("error in creating a new cim: %s", err)
 	}
@@ -453,7 +408,7 @@ func DestroyCimLayer(ctx context.Context, layerPath string) error {
 	// Note that the originalLayerPath doesn't exist at this point. We just create this string
 	// to get the cimPath.
 	originalLayerPath := filepath.Join(filepath.Dir(layerPath), originalLayerId)
-	cimPath := GetCimPathFromLayer(originalLayerPath)
+	cimPath := cim.GetCimPathFromLayer(originalLayerPath)
 	log.G(ctx).Debugf("DestroyCimLayer layerPath: %s, cimPath: %s", layerPath, cimPath)
 	if _, err := os.Stat(cimPath); err != nil {
 		if os.IsNotExist(err) {
@@ -461,5 +416,5 @@ func DestroyCimLayer(ctx context.Context, layerPath string) error {
 		}
 		return err
 	}
-	return destroyCim(cimPath)
+	return cim.DestroyCim(cimPath)
 }
