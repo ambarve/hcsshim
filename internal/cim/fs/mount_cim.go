@@ -1,10 +1,11 @@
-package cim
+package fs
 
 import (
 	"fmt"
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 )
 
@@ -51,6 +52,7 @@ func Mount(cimPath string) (string, error) {
 	}
 	ci := hostCimMounts[cimPath]
 	ci.refCount += 1
+	mylogger.LogFmt("Mount cim: %s, refCount: %d, mounted ID: %s\n", cimPath, ci.refCount, ci.cimID)
 	return fmt.Sprintf("\\\\?\\Volume{%s}", ci.cimID), nil
 }
 

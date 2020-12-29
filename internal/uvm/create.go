@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -229,7 +229,7 @@ func (uvm *UtilityVM) Close() (err error) {
 	}
 
 	// Remove the cim layer once hcsSytem is terminated.
-	if err := cim.UnMount(uvm.cimPath); err != nil {
+	if err := cimfs.UnMount(uvm.cimPath); err != nil {
 		log.G(ctx).Warnf("failure when unmounting cim uvm image: %s", err)
 	}
 

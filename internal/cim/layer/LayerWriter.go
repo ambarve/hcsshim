@@ -11,7 +11,7 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/security"
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
@@ -39,7 +39,7 @@ type CimLayerWriter struct {
 	// parent layer paths
 	parentLayerPaths []string
 	// Handle to the layer cim - writes to the cim file
-	cimWriter *cim.CimFsWriter
+	cimWriter *cimfs.CimFsWriter
 	// Handle to the writer for writing files in the local filesystem
 	stdFileWriter *stdFileWriter
 	// reference to currently active writer either cimWriter or stdFileWriter
@@ -356,7 +356,7 @@ func NewCimLayerWriter(ctx context.Context, path string, parentLayerPaths []stri
 		trace.StringAttribute("parentLayerPaths", strings.Join(parentLayerPaths, ", ")))
 
 	parentCim := ""
-	cimDirPath := cim.GetCimDirFromLayer(path)
+	cimDirPath := GetCimDirFromLayer(path)
 	if _, err = os.Stat(cimDirPath); os.IsNotExist(err) {
 		// create cim directory
 		if err = os.Mkdir(cimDirPath, 0755); err != nil {
@@ -368,10 +368,10 @@ func NewCimLayerWriter(ctx context.Context, path string, parentLayerPaths []stri
 	}
 
 	if len(parentLayerPaths) > 0 {
-		parentCim = cim.GetCimNameFromLayer(parentLayerPaths[0])
+		parentCim = GetCimNameFromLayer(parentLayerPaths[0])
 	}
 
-	cim, err := cim.Create(cim.GetCimDirFromLayer(path), parentCim, cim.GetCimNameFromLayer(path))
+	cim, err := cimfs.Create(GetCimDirFromLayer(path), parentCim, GetCimNameFromLayer(path))
 	if err != nil {
 		return nil, fmt.Errorf("error in creating a new cim: %s", err)
 	}
@@ -408,7 +408,7 @@ func DestroyCimLayer(ctx context.Context, layerPath string) error {
 	// Note that the originalLayerPath doesn't exist at this point. We just create this string
 	// to get the cimPath.
 	originalLayerPath := filepath.Join(filepath.Dir(layerPath), originalLayerId)
-	cimPath := cim.GetCimPathFromLayer(originalLayerPath)
+	cimPath := GetCimPathFromLayer(originalLayerPath)
 	log.G(ctx).Debugf("DestroyCimLayer layerPath: %s, cimPath: %s", layerPath, cimPath)
 	if _, err := os.Stat(cimPath); err != nil {
 		if os.IsNotExist(err) {
@@ -416,5 +416,5 @@ func DestroyCimLayer(ctx context.Context, layerPath string) error {
 		}
 		return err
 	}
-	return cim.DestroyCim(cimPath)
+	return cimfs.DestroyCim(cimPath)
 }

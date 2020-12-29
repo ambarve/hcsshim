@@ -9,7 +9,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
 	layerspkg "github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
@@ -253,7 +254,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		var err error
 		if coi.HostingSystem.OS() == "windows" {
 			if osversion.Build() >= osversion.IRON_BUILD {
-				layers, err = layerspkg.GetCimHCSLayer(ctx, coi.HostingSystem, cim.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0]))
+				layers, err = layerspkg.GetCimHCSLayer(ctx, coi.HostingSystem, cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0]))
 			} else {
 				layers, err = layerspkg.GetHCSLayers(ctx, coi.HostingSystem, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1])
 			}
@@ -267,8 +268,8 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 	if coi.isV2Argon() || coi.isV1Argon() { // Argon v1 or v2
 		if osversion.Build() >= osversion.IRON_BUILD {
 			// layers are in the cim format, mount only the topmost cim.
-			topLayerCim := cim.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0])
-			mountPath, err := cim.GetCimMountPath(topLayerCim)
+			topLayerCim := cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0])
+			mountPath, err := cimfs.GetCimMountPath(topLayerCim)
 			if err != nil {
 				return nil, nil, err
 			}

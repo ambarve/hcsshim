@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
@@ -45,29 +45,6 @@ func NewDefaultOptionsWCOW(id, owner string) *OptionsWCOW {
 	return &OptionsWCOW{
 		Options: newDefaultOptions(id, owner),
 	}
-}
-
-func addSymbolicLinksForBootCim(cimPath, cimMountPath string) error {
-	// Add wci bind mount to make the cim available inside the Windows directory.
-	bindPath := fmt.Sprintf("%s\\UtilityVM\\Files\\Windows\\boot.cim", cimMountPath)
-	cmd := exec.Command("D:\\cimfs\\wcitool.exe", "bind", bindPath, cimPath)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("wcitool command (%s) failed output %s: %s", cmd, output, err)
-	}
-	regionFiles, err := cim.GetRegionFilePaths(cimPath)
-	if err != nil {
-		return fmt.Errorf("adding bind mounts failed while getting region file paths: %s", err)
-	}
-	for _, regionFile := range regionFiles {
-		bindPath = fmt.Sprintf("%s\\UtilityVM\\Files\\Windows\\%s", cimMountPath, filepath.Base(regionFile))
-		cmd := exec.Command("D:\\cimfs\\wcitool.exe", "bind", bindPath, regionFile)
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("wcitool command (%s) failed output %s: %s", cmd, output, err)
-		}
-	}
-	return nil
 }
 
 // CreateWCOW creates an HCS compute system representing a utility VM.
@@ -120,9 +97,9 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	if osversion.Build() >= osversion.IRON_BUILD {
 		// The topmost parent layer is at 0
 		parentLayer := opts.LayerFolders[0]
-		cimPath := cim.GetCimPathFromLayer(parentLayer)
+		cimPath := cimlayer.GetCimPathFromLayer(parentLayer)
 		uvm.cimPath = cimPath
-		cimMountPath, err := cim.Mount(cimPath)
+		cimMountPath, err := cimfs.Mount(cimPath)
 		if err != nil {
 			return nil, err
 		}
@@ -130,15 +107,11 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		// In order to boot the uvm off of the the cim
 		defer func() {
 			if err != nil {
-				if err2 := cim.UnMount(cimPath); err2 != nil {
+				if err2 := cimfs.UnMount(cimPath); err2 != nil {
 					log.G(ctx).WithField("cimPath", cimPath).Warn("failed to unmount cim")
 				}
 			}
 		}()
-
-		if err := addSymbolicLinksForBootCim(cimPath, cimMountPath); err != nil {
-			return nil, fmt.Errorf("failed when adding bind mounts for boot.cim: %s", err)
-		}
 
 		cimLayers = append(cimLayers, cimMountPath)
 		cimLayers = append(cimLayers, opts.LayerFolders[len(opts.LayerFolders)-1])
@@ -211,8 +184,8 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 				Options: vsmbOpts,
 			},
 			{
-				Name:    cim.CimVsmbShareName,
-				Path:    cim.GetCimDirFromLayer(opts.LayerFolders[0]),
+				Name:    cimlayer.CimVsmbShareName,
+				Path:    cimlayer.GetCimDirFromLayer(opts.LayerFolders[0]),
 				Options: vsmbOpts,
 			},
 		},

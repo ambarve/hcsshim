@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
@@ -74,21 +76,20 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		rest := layerFolders[:len(layerFolders)-1]
 		if osversion.Build() >= osversion.IRON_BUILD {
 			// mount the topmost parent cim layer
-			// TODO(ambarve): Will this fail if we receive a set of layers that
-			// are not all part of the same forked cim chain?
-			// TODO(ambarve): is the rest[0] topmost of rest[:len - 1] topmost?
-			cimPath := cim.GetCimPathFromLayer(rest[0])
-			cimMountPath, err2 := cim.Mount(cimPath)
+			cimPath := cimlayer.GetCimPathFromLayer(rest[0])
+			cimMountPath, err2 := cimfs.Mount(cimPath)
 			if err2 != nil {
 				return "", err2
 			}
 			defer func() {
 				if err != nil {
-					cim.UnMount(cimPath)
+					cimfs.UnMount(cimPath)
 				}
 			}()
 			rest = []string{cimMountPath}
 		}
+		mylogger.LogFmt("Before activate layer:\n")
+		mylogger.RunCmdAndLogOutput([]string{"mountvol"})
 		if err := wclayer.ActivateLayer(ctx, path); err != nil {
 			return "", err
 		}
@@ -125,7 +126,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		if err != nil {
 			if uvm.OS() == "windows" {
 				if osversion.Build() >= osversion.IRON_BUILD && len(layersAdded) > 0 {
-					cimPath := cim.GetCimPathFromLayer(layersAdded[0])
+					cimPath := cimlayer.GetCimPathFromLayer(layersAdded[0])
 					if err := uvm.UnMountFromUVM(ctx, cimPath); err != nil {
 						log.G(ctx).WithError(err).Warn("failed to unmount cim from uvm on cleanup")
 					}
@@ -148,7 +149,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 	}()
 
 	if osversion.Build() >= osversion.IRON_BUILD && uvm.OS() == "windows" {
-		_, err := uvm.MountInUVM(ctx, cim.GetCimPathFromLayer(layerFolders[0]))
+		_, err := uvm.MountInUVM(ctx, cimlayer.GetCimPathFromLayer(layerFolders[0]))
 		if err != nil {
 			return "", err
 		}
@@ -205,7 +206,7 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot 
 		// request each of the read-only layer folders.
 		var layers []hcsschema.Layer
 		if osversion.Build() >= osversion.IRON_BUILD {
-			layers, err = GetCimHCSLayer(ctx, uvm, cim.GetCimPathFromLayer(layerFolders[0]))
+			layers, err = GetCimHCSLayer(ctx, uvm, cimlayer.GetCimPathFromLayer(layerFolders[0]))
 			if err != nil {
 				return "", fmt.Errorf("failed to get hcs layer: %s", err)
 			}
@@ -315,8 +316,8 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 		}
 
 		if osversion.Build() >= osversion.IRON_BUILD {
-			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
-			if err := cim.UnMount(cimPath); err != nil {
+			cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
+			if err := cimfs.UnMount(cimPath); err != nil {
 				return err
 			}
 		}
@@ -360,7 +361,7 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 	// to share layers.
 	if uvm.OS() == "windows" && (op&UnmountOperationVSMB) == UnmountOperationVSMB {
 		if osversion.Build() >= osversion.IRON_BUILD {
-			cimPath := cim.GetCimPathFromLayer(layerFolders[0])
+			cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
 			if e := uvm.UnMountFromUVM(ctx, cimPath); e != nil {
 				log.G(ctx).WithError(e).Warn("failed to unmount cim from uvm on cleanup")
 				if retError == nil {

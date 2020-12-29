@@ -11,7 +11,7 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
@@ -99,7 +99,7 @@ func updateRegistryForCimBoot(layerPath, hivePath string) (err error) {
 	if err != nil {
 		return fmt.Errorf("can not convert string to utf16: %s", err)
 	}
-	cimRelativePath := cim.CimVsmbShareName + "\\" + cim.GetCimNameFromLayer(layerPath)
+	cimRelativePath := CimVsmbShareName + "\\" + GetCimNameFromLayer(layerPath)
 	cimRelativePathData, err := windows.UTF16FromString(cimRelativePath)
 	if err != nil {
 		return fmt.Errorf("can not convert string to utf16: %s", err)
@@ -183,10 +183,10 @@ func mergeWithParentLayerHives(layerPath, parentLayerPath, outputDir string) err
 	}
 	defer os.RemoveAll(tmpParentLayer)
 
-	parentCimPath := cim.GetCimPathFromLayer(parentLayerPath)
+	parentCimPath := GetCimPathFromLayer(parentLayerPath)
 
 	for _, hv := range hives {
-		err := cim.FetchFileFromCim(parentCimPath, filepath.Join(hivesPath, hv.base), filepath.Join(tmpParentLayer, hv.base))
+		err := cimfs.FetchFileFromCim(parentCimPath, filepath.Join(hivesPath, hv.base), filepath.Join(tmpParentLayer, hv.base))
 		if err != nil {
 			return err
 		}

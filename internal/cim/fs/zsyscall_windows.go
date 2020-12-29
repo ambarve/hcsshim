@@ -1,6 +1,6 @@
 // Code generated mksyscall_windows.exe DO NOT EDIT
 
-package cim
+package fs
 
 import (
 	"syscall"

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/cim"
+	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/docker/docker/pkg/ioutils"
 )
@@ -52,26 +52,26 @@ func processBaseLayer(ctx context.Context, layerPath string) (err error) {
 	// process utilityVM base layer
 	// setupUtilityVMBaseLayer needs to access some of the layer files so we mount the cim
 	// and pass the path of the mounted cim as layerpath to setupUtilityVMBaseLayer.
-	mountpath, err := cim.Mount(cim.GetCimPathFromLayer(layerPath))
+	mountpath, err := cimfs.Mount(GetCimPathFromLayer(layerPath))
 	if err != nil {
 		return fmt.Errorf("failed to mount cim : %s", err)
 	}
 	defer func() {
 		// Try to unmount irrespective of errors
-		cim.UnMount(cim.GetCimPathFromLayer(layerPath))
+		cimfs.UnMount(GetCimPathFromLayer(layerPath))
 	}()
 
 	if err := setupUtilityVMBaseLayer(ctx, filepath.Join(mountpath, utilityVMPath), layerPath); err != nil {
 		return fmt.Errorf("failed to setup utility vm base layer: %s", err)
 	}
-	if err = cim.UnMount(cim.GetCimPathFromLayer(layerPath)); err != nil {
+	if err = cimfs.UnMount(GetCimPathFromLayer(layerPath)); err != nil {
 		return fmt.Errorf("failed to dismount cim: %s", err)
 	}
 	return nil
 }
 
 // createBaseLayerHives creates the base registry hives inside the given cim.
-func createBaseLayerHives(cimWriter *cim.CimFsWriter) error {
+func createBaseLayerHives(cimWriter *cimfs.CimFsWriter) error {
 	// make hives directory
 	hivesDirInfo := &winio.FileBasicInfo{
 		CreationTime:   syscall.NsecToFiletime(time.Now().UnixNano()),
@@ -107,7 +107,7 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 	defer os.RemoveAll(tmpDir)
 	layerRelativeSystemHivePath := filepath.Join(utilityVMPath, regFilesPath, "SYSTEM")
 	tmpSystemHivePath := filepath.Join(tmpDir, "SYSTEM")
-	if err := cim.FetchFileFromCim(cim.GetCimPathFromLayer(layerPath), layerRelativeSystemHivePath, tmpSystemHivePath); err != nil {
+	if err := cimfs.FetchFileFromCim(GetCimPathFromLayer(layerPath), layerRelativeSystemHivePath, tmpSystemHivePath); err != nil {
 		return err
 	}
 
@@ -116,7 +116,7 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 	}
 
 	// open the cim for writing
-	cimWriter, err := cim.Create(cim.GetCimDirFromLayer(layerPath), cim.GetCimNameFromLayer(layerPath), "")
+	cimWriter, err := cimfs.Create(GetCimDirFromLayer(layerPath), GetCimNameFromLayer(layerPath), "")
 	if err != nil {
 		return fmt.Errorf("failed to open cim at path %s: %s", layerPath, err)
 	}
@@ -148,9 +148,9 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return fmt.Errorf("failed while updating SYSTEM registry inside cim: %s", err)
 	}
 
-	// if err := debuggingSetup(cimWriter); err != nil {
-	// 	return fmt.Errorf("failed during debugging setup: %s", err)
-	// }
+	if err := debuggingSetup(cimWriter); err != nil {
+		return fmt.Errorf("failed during debugging setup: %s", err)
+	}
 	return nil
 }
 
@@ -172,7 +172,7 @@ func processNonBaseLayer(ctx context.Context, layerPath string, parentLayerPaths
 	}
 
 	// open the cim for writing
-	cimWriter, err := cim.Create(cim.GetCimDirFromLayer(layerPath), cim.GetCimNameFromLayer(layerPath), "")
+	cimWriter, err := cimfs.Create(GetCimDirFromLayer(layerPath), GetCimNameFromLayer(layerPath), "")
 	if err != nil {
 		return fmt.Errorf("failed to open cim at path %s: %s", layerPath, err)
 	}
@@ -200,7 +200,7 @@ func processNonBaseLayer(ctx context.Context, layerPath string, parentLayerPaths
 
 // debuggingSetup can be used to do any kind of debugging related operation on the cim
 // before it is closed. Mostly this is used to replace some files inside the cim.
-func debuggingSetup(cimWriter *cim.CimFsWriter) error {
+func debuggingSetup(cimWriter *cimfs.CimFsWriter) error {
 	// Overwrite the wcifs.sys & cimfs.sys files inside the cim.
 	overwriteFiles := []struct {
 		hostPath string // File on the host that should be added to cim
