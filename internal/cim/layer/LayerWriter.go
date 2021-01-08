@@ -13,7 +13,6 @@ import (
 	"github.com/Microsoft/go-winio/pkg/security"
 	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/storage"
@@ -92,7 +91,6 @@ func isStdFile(path string) bool {
 
 // Add adds a file to the layer with given metadata.
 func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
-	// mylogger.LogStruct(fmt.Sprintf("CimLayer Add name: %s, fileSize: %d, sec desc len: %d, ea len: %d, reparse len: %d : ", name, fileSize, len(securityDescriptor), len(extendedAttributes), len(reparseData)), fileInfo)
 	if isStdFile(name) {
 		if err := cw.stdFileWriter.Add(name); err != nil {
 			return err
@@ -166,7 +164,6 @@ func setupBaseLayer(ctx context.Context, baseVhdHandle windows.Handle, layerPath
 		return fmt.Errorf("failed to marshal layer options: %s", err)
 	}
 
-	mylogger.LogFmt("SetupBaseOSLayer with layerPath: %s\n", layerPath)
 	if err := storage.SetupBaseOSLayer(ctx, layerPath, baseVhdHandle, string(layerOptionsJson)); err != nil {
 		return fmt.Errorf("failed to setup base os layer: %s", err)
 	}
@@ -330,9 +327,6 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 			return fmt.Errorf("postProcessBaseLayer failed: %s", err)
 		}
 	} else {
-		// TODO(ambarve): We probably should reapply the timestamps for the hives directory.
-		// TODO(ambarve): We merge registry files here but utility vm folder has created hard links
-		// to some of the registry files earlier. Will they continue to work?
 		if err := processNonBaseLayer(ctx, cw.path, cw.parentLayerPaths); err != nil {
 			return fmt.Errorf("failed to process layer: %s", err)
 		}

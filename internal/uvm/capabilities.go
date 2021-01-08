@@ -22,3 +22,17 @@ func (uvm *UtilityVM) DeleteContainerStateSupported() bool {
 func (uvm *UtilityVM) Capabilities() (uint32, schema1.GuestDefinedCapabilities) {
 	return uvm.protocol, uvm.guestCaps
 }
+
+// MountCimSupported returns true if the uvm allows mounting a cim inside the it (This
+// support is available for IRON+ onwards). Returns false otherwise.
+func (uvm *UtilityVM) MountCimSupported() bool {
+	// TODO(ambarve): Figure out a way for getting this info.  We can add a GetWindowsVersion
+	// call to the GCS or maybe there is a way.
+	// Mounting cim inside the uvm is not supported if the uvm is running a windows
+	// version < IRON. However, even if the uvm windows version is >= IRON if there
+	// are any kinds of devices physically mapped into the uvm then we won't be able
+	// to have the layers direct mapped and so we can't mount the layer cim inside the
+	// uvm.
+	return !uvm.devicesPhysicallyBacked
+	return false
+}

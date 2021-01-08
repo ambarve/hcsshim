@@ -2,20 +2,17 @@ package layer
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"unsafe"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
-	"golang.org/x/sys/windows"
 )
 
 func bcdExec(storePath string, args ...string) error {
@@ -71,39 +68,19 @@ func updateBcdStoreForBoot(storePath string, diskID, partitionID guid.GUID) erro
 	if err := setBcdOsArcDevice(storePath, diskID, partitionID); err != nil {
 		return err
 	}
-	return setDebugOn(storePath)
+	return nil
 }
 
-// updateRegistryForCimBoot Opens the SYSTEM registry hive at path `hivePath` and updates
-// it to enable uvm boot from the cim. We need to set following values in the SYSTEM
-// registry:
-// To ask the uvm to boot directly from the cim setup following registry keys:
-// (TODO(ambarve): only supported for iron+ hosts)
-// 1. ControlSet001\Control\HVSI /v WCIFSCIMFSContainerMode /t REG_DWORD /d 0x1
-// 2. ControlSet001\Control\HVSI /v WCIFSContainerMode /t REG_DWORD /d 0x1
-// 3. ControlSet001\Services\CimFS /v Start /t REG_DWORD /d 0x0
-// To specify the path of the cim from which to boot set up following registry keys. Whenever a uvm
-// is created a vsmb share is automatically added to that uvm to share the directory which holds all the cim
-// files. This registry key should specify a path whose first element is the name of that share and the second
-// element is the name of the cim.
-// 1. ControlSet001\Control\HVSI /v CimRelativePath /t REG_SZ /d  $CimVsmbShareName`+\\+`$nameofthelayercim`
-// Our cim includes files for both the uvm and the containers. All the files for the uvm are kept inside the
-// `UtilityVM\Files` directory so below registry key specifies the name of this directory inside the cim which
-// contains all the uvm related files.
-// ControlSet001\Control\HVSI /v UvmLayerRelativePath /t REG_SZ /d UtilityVM\\Files\\ (the ending \\ is important)
-func updateRegistryForCimBoot(layerPath, hivePath string) (err error) {
+// enableCimBoot Opens the SYSTEM registry hive at path `hivePath` in
+// `layerPath` and updates it to include a CIMFS Start registry key. This prepares the uvm
+// to boot from a cim file if requested. The registry changes required to actually make
+// the uvm boot from a cim will be added in the uvm config since we don't want every
+// single uvm started with this layer to attempt to boot from a cim. (Look at
+// addBootFromCimRegistryChanges for details).
+// This registry key needs to be available in the early boot phase and so including it in the
+// uvm config doesn't work.
+func enableCimBoot(layerPath, hivePath string) (err error) {
 	dataZero := make([]byte, 4)
-	dataOne := make([]byte, 4)
-	binary.LittleEndian.PutUint32(dataOne, uint32(1))
-	uvmLayerRelativePathData, err := windows.UTF16FromString("UtilityVM\\Files\\")
-	if err != nil {
-		return fmt.Errorf("can not convert string to utf16: %s", err)
-	}
-	cimRelativePath := CimVsmbShareName + "\\" + GetCimNameFromLayer(layerPath)
-	cimRelativePathData, err := windows.UTF16FromString(cimRelativePath)
-	if err != nil {
-		return fmt.Errorf("can not convert string to utf16: %s", err)
-	}
 
 	regChanges := []struct {
 		keyPath   string
@@ -112,10 +89,6 @@ func updateRegistryForCimBoot(layerPath, hivePath string) (err error) {
 		data      *byte
 		dataLen   uint32
 	}{
-		{"ControlSet001\\Control\\HVSI", "WCIFSCIMFSContainerMode", winapi.REG_TYPE_DWORD, &dataOne[0], uint32(len(dataOne))},
-		{"ControlSet001\\Control\\HVSI", "WCIFSContainerMode", winapi.REG_TYPE_DWORD, &dataOne[0], uint32(len(dataOne))},
-		{"ControlSet001\\Control\\HVSI", "CimRelativePath", winapi.REG_TYPE_SZ, (*byte)(unsafe.Pointer(&cimRelativePathData[0])), uint32(2 * len(cimRelativePathData))},
-		{"ControlSet001\\Control\\HVSI", "UvmLayerRelativePath", winapi.REG_TYPE_SZ, (*byte)(unsafe.Pointer(&uvmLayerRelativePathData[0])), uint32(2 * len(uvmLayerRelativePathData))},
 		{"ControlSet001\\Services\\CimFS", "Start", winapi.REG_TYPE_DWORD, &dataZero[0], uint32(len(dataZero))},
 	}
 
@@ -157,17 +130,16 @@ func setDebugOn(storePath string) error {
 	if err := bcdExec(storePath, "/set", "{default}", "testsigning", "on"); err != nil {
 		return err
 	}
-	// if err := bcdExec(storePath, "/set", "{default}", "bootdebug", "on"); err != nil {
-	// 	return err
-	// }
-	// if err := bcdExec(storePath, "/set", "{bootmgr}", "bootdebug", "on"); err != nil {
-	// 	return err
-	// }
-	// if err := bcdExec(storePath, "/dbgsettings", "SERIAL", "DEBUGPORT:1", "BAUDRATE:115200"); err != nil {
-	// 	return err
-	// }
-	// return bcdExec(storePath, "/set", "{default}", "debug", "on")
-	return nil
+	if err := bcdExec(storePath, "/set", "{default}", "bootdebug", "on"); err != nil {
+		return err
+	}
+	if err := bcdExec(storePath, "/set", "{bootmgr}", "bootdebug", "on"); err != nil {
+		return err
+	}
+	if err := bcdExec(storePath, "/dbgsettings", "SERIAL", "DEBUGPORT:1", "BAUDRATE:115200"); err != nil {
+		return err
+	}
+	return bcdExec(storePath, "/set", "{default}", "debug", "on")
 }
 
 // mergeWithParentLayerHives merges the delta hives of current layer with the base registry

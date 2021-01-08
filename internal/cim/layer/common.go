@@ -1,15 +1,13 @@
 package layer
 
 import (
+	"os"
 	"path/filepath"
 )
 
 const (
 	// name of the directory in which cims are stored
 	cimDir = "cim-layers"
-
-	// The name assigned to the vsmb share which shares the cim directory inside the uvm.
-	CimVsmbShareName = "bootcimdir"
 )
 
 // Usually layers are stored at
@@ -36,4 +34,11 @@ func GetCimPathFromLayer(layerPath string) string {
 func GetCimDirFromLayer(layerPath string) string {
 	dir := filepath.Dir(layerPath)
 	return filepath.Join(dir, cimDir)
+}
+
+// IsCimLayer returns `true` if the layer at path `layerPath` is a cim layer. Returns `false` otherwise.
+func IsCimLayer(layerPath string) bool {
+	cimPath := GetCimPathFromLayer(layerPath)
+	_, err := os.Stat(cimPath)
+	return (err == nil)
 }

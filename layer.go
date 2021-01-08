@@ -35,7 +35,7 @@ func DeactivateLayer(info DriverInfo, id string) error {
 }
 
 func DestroyLayer(info DriverInfo, id string) error {
-	if osversion.Build() >= osversion.IRON_BUILD {
+	if osversion.Get().Version >= osversion.IRON_BUILD {
 		return cimlayer.DestroyCimLayer(context.Background(), layerPath(&info, id))
 	} else {
 		return wclayer.DestroyLayer(context.Background(), layerPath(&info, id))
@@ -114,10 +114,10 @@ func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) 
 }
 
 func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cimlayer.CimLayerWriter, error) {
-	if osversion.Build() >= osversion.IRON_BUILD {
+	if osversion.Get().Version >= osversion.IRON_BUILD {
 		return cimlayer.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)
 	} else {
-		return nil, fmt.Errorf("cim layers needs builds %d and above, current build: %d", osversion.IRON_BUILD, osversion.Build())
+		return nil, fmt.Errorf("cim layers needs builds %d and above, current build: %d", osversion.IRON_BUILD, osversion.Get().Version)
 	}
 }
 

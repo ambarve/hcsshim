@@ -253,7 +253,7 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		var layers []hcsschema.Layer
 		var err error
 		if coi.HostingSystem.OS() == "windows" {
-			if osversion.Build() >= osversion.IRON_BUILD {
+			if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[0]) {
 				layers, err = layerspkg.GetCimHCSLayer(ctx, coi.HostingSystem, cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0]))
 			} else {
 				layers, err = layerspkg.GetHCSLayers(ctx, coi.HostingSystem, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1])
@@ -266,14 +266,13 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 	}
 
 	if coi.isV2Argon() || coi.isV1Argon() { // Argon v1 or v2
-		if osversion.Build() >= osversion.IRON_BUILD {
-			// layers are in the cim format, mount only the topmost cim.
+		if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[0]) {
 			topLayerCim := cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0])
 			mountPath, err := cimfs.GetCimMountPath(topLayerCim)
 			if err != nil {
 				return nil, nil, err
 			}
-			layerID, err := wclayer.LayerID(ctx, mountPath)
+			layerID, err := wclayer.LayerID(ctx, topLayerCim)
 			if err != nil {
 				return nil, nil, err
 			}

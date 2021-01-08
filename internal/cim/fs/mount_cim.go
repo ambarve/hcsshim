@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 )
 
@@ -52,8 +51,7 @@ func Mount(cimPath string) (string, error) {
 	}
 	ci := hostCimMounts[cimPath]
 	ci.refCount += 1
-	mylogger.LogFmt("Mount cim: %s, refCount: %d, mounted ID: %s\n", cimPath, ci.refCount, ci.cimID)
-	return fmt.Sprintf("\\\\?\\Volume{%s}", ci.cimID), nil
+	return fmt.Sprintf("\\\\?\\Volume{%s}\\", ci.cimID), nil
 }
 
 // Returns the path ("\\?\Volume{GUID}" format) at which the cim with given cimPath is mounted
@@ -63,7 +61,7 @@ func GetCimMountPath(cimPath string) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("cim %s is not mounted", cimPath)
 	}
-	return fmt.Sprintf("\\\\?\\Volume{%s}", ci.cimID), nil
+	return fmt.Sprintf("\\\\?\\Volume{%s}\\", ci.cimID), nil
 }
 
 // UnMount unmounts the cim at path `cimPath` if this is the last reference to it.

@@ -1062,6 +1062,9 @@ func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 	if err := winio.SetFileBasicInfo(destinationFile, basicInfo); err != nil {
 		return fmt.Errorf("failed while setting file basic info: %s", err)
 	}
-	// TODO(ambarve): what do we do with SecurityDescriptor, reparseData and extendedAttributes?
+	// TODO(ambarve):Ideally we should handle SecurityDescriptor, reparseData and
+	// extendedAttributes here but legacy layer files always pass empty values for
+	// these so this is okay for now.
+
 	return
 }

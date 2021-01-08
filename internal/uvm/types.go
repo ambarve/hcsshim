@@ -122,4 +122,7 @@ type UtilityVM struct {
 
 	// cim layers which are mounted inside this uvm.
 	cimMounts map[string]*cimInfo
+
+	// layers passed for this uvm
+	layerFolders []string
 }

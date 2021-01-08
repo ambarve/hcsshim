@@ -11,7 +11,6 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/docker/docker/pkg/ioutils"
 )
 
@@ -111,7 +110,7 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return err
 	}
 
-	if err := updateRegistryForCimBoot(layerPath, tmpSystemHivePath); err != nil {
+	if err := enableCimBoot(layerPath, tmpSystemHivePath); err != nil {
 		return fmt.Errorf("failed to setup cim image for uvm boot: %s", err)
 	}
 
@@ -148,9 +147,9 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return fmt.Errorf("failed while updating SYSTEM registry inside cim: %s", err)
 	}
 
-	if err := debuggingSetup(cimWriter); err != nil {
-		return fmt.Errorf("failed during debugging setup: %s", err)
-	}
+	// if err := debuggingSetup(cimWriter); err != nil {
+	// 	return fmt.Errorf("failed during debugging setup: %s", err)
+	// }
 	return nil
 }
 
@@ -165,7 +164,6 @@ func processNonBaseLayer(ctx context.Context, layerPath string, parentLayerPaths
 		return fmt.Errorf("failed to create temp dir: %s", tmpCurrentLayer)
 	}
 	defer os.RemoveAll(tmpCurrentLayer)
-	mylogger.LogFmt("processNonBaseLayer layerPath: %s, parentLayerPaths: %v\n", layerPath, parentLayerPaths)
 
 	if err := mergeWithParentLayerHives(layerPath, parentLayerPaths[0], tmpCurrentLayer); err != nil {
 		return err

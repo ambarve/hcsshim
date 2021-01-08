@@ -9,7 +9,6 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"golang.org/x/sys/windows"
 )
 
@@ -127,9 +126,6 @@ func (c *CimFsWriter) AddFile(path string, info *winio.FileBasicInfo, fileSize i
 		return &PathError{Cim: c.name, Op: "addFile", Path: path, Err: err}
 	}
 	c.activeName = path
-	//TODO(ambarve): Docker adds sparse file tag to files which have some data in it. However,
-	// this is not allowed in cimfs. Figure out how this can be fixed.
-	// if info.FileAttributes&(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_SPARSE_FILE) == 0 {
 	if info.FileAttributes&(windows.FILE_ATTRIBUTE_DIRECTORY) == 0 {
 		c.activeLeft = fileSize
 	}
@@ -155,7 +151,6 @@ func (c *CimFsWriter) AddFileFromPath(pathInCim, hostPath string, securityDescri
 	if err != nil {
 		return fmt.Errorf("failed to read replacement file at %s : %s", hostPath, err)
 	}
-	mylogger.LogFmt("cim AddFileFromPath name: %s, info: %+v, size: %d, len sddl: %d, len ea: %d, len reparse: %d\n", pathInCim, basicInfo, len(replaceData), len(securityDescriptor), len(extendedAttributes), len(reparseData))
 	if err := c.AddFile(pathInCim, basicInfo, int64(len(replaceData)), securityDescriptor, extendedAttributes, reparseData); err != nil {
 		return err
 	}
@@ -184,8 +179,6 @@ func (c *CimFsWriter) Write(p []byte) (int, error) {
 }
 
 // Link adds a hard link from `oldPath` to `newPath` in the image.
-// TODO(ambarve): there is a bug in cimfs hard link implementation that it will always
-// show the number of hard links to be 1 even if there are more.
 func (c *CimFsWriter) AddLink(oldPath string, newPath string) error {
 	err := c.closeStream()
 	if err != nil {
