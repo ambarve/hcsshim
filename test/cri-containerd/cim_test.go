@@ -1,4 +1,4 @@
-package cim
+package cri_containerd
 
 import (
 	"bytes"
@@ -13,6 +13,11 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
+	cimfs "github.com/Microsoft/hcsshim/internal/cimfs"
+	"github.com/Microsoft/hcsshim/osversion"
+	_ "github.com/Microsoft/hcsshim/test/functional/manifest"
+	testutilities "github.com/Microsoft/hcsshim/test/functional/utilities"
+	"golang.org/x/sys/windows"
 )
 
 // A simple tuple type used to hold information about a file/directory that is created
@@ -24,7 +29,7 @@ type tuple struct {
 }
 
 // A utility function to create a file/directory and write data to it in the given cim
-func createCimFileUtil(c *cimFsWriter, fileTuple tuple) error {
+func createCimFileUtil(c *cimfs.CimFsWriter, fileTuple tuple) error {
 	// create files inside the cim
 	fileInfo := &winio.FileBasicInfo{
 		CreationTime:   syscall.NsecToFiletime(time.Now().UnixNano()),
@@ -34,10 +39,10 @@ func createCimFileUtil(c *cimFsWriter, fileTuple tuple) error {
 		FileAttributes: 0,
 	}
 	if fileTuple.isDir {
-		fileInfo.FileAttributes = FILE_ATTRIBUTE_DIRECTORY
+		fileInfo.FileAttributes = windows.FILE_ATTRIBUTE_DIRECTORY
 	}
 
-	if err := c.addFile(filepath.FromSlash(fileTuple.filepath), fileInfo, int64(len(fileTuple.fileContents)), []byte{}, []byte{}, []byte{}); err != nil {
+	if err := c.AddFile(filepath.FromSlash(fileTuple.filepath), fileInfo, int64(len(fileTuple.fileContents)), []byte{}, []byte{}, []byte{}); err != nil {
 		return err
 	}
 
@@ -61,6 +66,8 @@ func createCimFileUtil(c *cimFsWriter, fileTuple tuple) error {
 // |- foo
 // |--- bar.txt
 func TestCimReadWrite(t *testing.T) {
+	testutilities.RequiresBuild(t, osversion.IRON_BUILD)
+
 	testContents := []tuple{
 		{"foobar.txt", []byte("foobar test data"), false},
 		{"foo", []byte(""), true},
@@ -73,7 +80,7 @@ func TestCimReadWrite(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
-	c, err := create(tempDir, "", cimName)
+	c, err := cimfs.Create(tempDir, "", cimName)
 	if err != nil {
 		t.Fatalf("failed while creating a cim: %s", err)
 	}
@@ -84,18 +91,13 @@ func TestCimReadWrite(t *testing.T) {
 			t.Fatalf("failed to create the file %s inside the cim:%s", ft.filepath, err)
 		}
 	}
-	c.close()
+	c.Close()
 
 	// open and read the cim
-	cimReader, err := Open(filepath.Join(tempDir, cimName))
+	cimReader, err := cimfs.Open(filepath.Join(tempDir, cimName))
 	if err != nil {
 		t.Fatalf("failed while opening the cim: %s", err)
 	}
-
-	// rootDir, err := cimReader.Open("/")
-	// if err != nil {
-	// 	t.Fatalf("failed to open the root of the cim: %s", err)
-	// }
 
 	for _, ft := range testContents {
 		// make sure the size of byte array is larger than contents of the largest file

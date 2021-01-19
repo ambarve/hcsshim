@@ -27,6 +27,7 @@ require (
 	github.com/xeipuuv/gojsonschema v0.0.0-20180618132009-1d523034197f // indirect
 	go.etcd.io/bbolt v1.3.3 // indirect
 	golang.org/x/sync v0.0.0-20190423024810-112230192c58
+	golang.org/x/sys v0.0.0-20201201145000-ef89a241ccb3
 	google.golang.org/grpc v1.23.1
 	k8s.io/cri-api v0.17.3
 )
