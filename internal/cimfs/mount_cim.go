@@ -6,6 +6,7 @@ import (
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
+	"github.com/pkg/errors"
 )
 
 type MountError struct {
@@ -42,7 +43,7 @@ func Mount(cimPath string) (string, error) {
 	if _, ok := hostCimMounts[cimPath]; !ok {
 		layerGUID, err := guid.NewV4()
 		if err != nil {
-			return "", fmt.Errorf("error creating guid: %s", err)
+			return "", &MountError{Cim: cimPath, Op: "Mount", Err: err}
 		}
 		if err := cimMountImage(filepath.Dir(cimPath), filepath.Base(cimPath), hcsschema.CimMountFlagCacheFiles, &layerGUID); err != nil {
 			return "", &MountError{Cim: cimPath, Op: "Mount", VolumeGUID: layerGUID, Err: err}
@@ -59,7 +60,7 @@ func Mount(cimPath string) (string, error) {
 func GetCimMountPath(cimPath string) (string, error) {
 	ci, ok := hostCimMounts[cimPath]
 	if !ok {
-		return "", fmt.Errorf("cim %s is not mounted", cimPath)
+		return "", errors.Errorf("cim %s is not mounted", cimPath)
 	}
 	return fmt.Sprintf("\\\\?\\Volume{%s}\\", ci.cimID), nil
 }
@@ -68,11 +69,11 @@ func GetCimMountPath(cimPath string) (string, error) {
 func UnMount(cimPath string) error {
 	ci, ok := hostCimMounts[cimPath]
 	if !ok {
-		return fmt.Errorf("cim not mounted")
+		return errors.Errorf("cim not mounted")
 	}
 	if ci.refCount == 1 {
 		if err := cimDismountImage(&ci.cimID); err != nil {
-			return fmt.Errorf("error dismounting the cim: %s", err)
+			return &MountError{Cim: cimPath, Op: "UnMount", Err: err}
 		}
 		delete(hostCimMounts, cimPath)
 	} else {

@@ -3,7 +3,6 @@ package cimfs
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +14,7 @@ import (
 	winio "github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/internal/cimfs/format"
 	"github.com/Microsoft/hcsshim/internal/winapi"
+	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
 
@@ -960,13 +960,13 @@ func (s *Stream) Name() string {
 func GetRegionFilePaths(cimPath string) ([]string, error) {
 	f, err := os.Open(cimPath)
 	if err != nil {
-		return []string{}, fmt.Errorf("failure opening cimFile %s : %s", cimPath, err)
+		return []string{}, errors.Wrapf(err, "GetRegionFilePaths: can't open file %s", cimPath)
 	}
 	defer f.Close()
 
 	fsh, err := readFilesystemHeader(f)
 	if err != nil {
-		return []string{}, fmt.Errorf("failure while reading cim %s : %s", cimPath, err)
+		return []string{}, errors.Wrapf(err, "GetRegionFilePaths: failed while reading file %s", cimPath)
 	}
 
 	paths := []string{}
@@ -983,13 +983,13 @@ func GetRegionFilePaths(cimPath string) ([]string, error) {
 func GetObjectIdFilePaths(cimPath string) ([]string, error) {
 	f, err := os.Open(cimPath)
 	if err != nil {
-		return []string{}, fmt.Errorf("failure opening cimFile %s : %s", cimPath, err)
+		return []string{}, errors.Wrapf(err, "GetObjectIdFilePaths: can't open file %s", cimPath)
 	}
 	defer f.Close()
 
 	fsh, err := readFilesystemHeader(f)
 	if err != nil {
-		return []string{}, fmt.Errorf("failure while reading cim %s : %s", cimPath, err)
+		return []string{}, errors.Wrapf(err, "GetObjectIdFilePaths: failed while reading file %s", cimPath)
 	}
 
 	paths := []string{}
@@ -1009,7 +1009,7 @@ func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 	// open the cim file and read it.
 	cimReader, err := Open(cimPath)
 	if err != nil {
-		return fmt.Errorf("failed to open the cim %s: %s", cimPath, err)
+		return errors.Wrapf(err, "failed to open the cim %s", cimPath)
 	}
 	defer func() {
 		if err2 := cimReader.Close(); err == nil {
@@ -1019,20 +1019,20 @@ func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 
 	cimFile, err := cimReader.Open(filePath)
 	if err != nil {
-		return fmt.Errorf("failed while opening file %s inside the cim %s: %s", filePath, cimPath, err)
+		return errors.Wrapf(err, "FetchFileFromCim, can't open file %s from the cim", filePath)
 	}
 	fileData := make([]byte, cimFile.Size())
 	rc, err := cimFile.Read(fileData)
 	if err != nil && err != io.EOF {
-		return fmt.Errorf("failed while reading %s: %s", cimFile.Name(), err)
+		return errors.Wrapf(err, "FetchFileFromCim, read cim failed")
 	} else if uint64(rc) != cimFile.Size() {
-		return fmt.Errorf("read truncated for file %s", cimFile.Name())
+		return errors.Wrapf(err, "FetchFileFromCim, read truncated for file %s", filePath)
 	}
 
 	// create the destination file and write to it.
 	destinationFile, err := os.Create(destinationPath)
 	if err != nil {
-		return fmt.Errorf("failed to created file %s: %s", destinationPath, err)
+		return errors.Wrapf(err, "FetchFileFromCim, can't create file %s", destinationPath)
 	}
 	defer func() {
 		if err2 := destinationFile.Close(); err == nil {
@@ -1041,15 +1041,15 @@ func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 	}()
 	wc, err := destinationFile.Write(fileData)
 	if err != nil {
-		return fmt.Errorf("failed while writing to file %s: %s", destinationPath, err)
+		return errors.Wrapf(err, "FetchFileFromCim, can't write to file %s", destinationPath)
 	} else if wc != rc {
-		return fmt.Errorf("write truncated for file %s", destinationPath)
+		return errors.Wrapf(err, "FetchFileFromCim, write truncated for file %s", destinationPath)
 	}
 
 	// set the basic file information
 	fstats, err := cimFile.Stat()
 	if err != nil {
-		return fmt.Errorf("stat call failed for file %s: %s", filePath, err)
+		return errors.Wrapf(err, "FetchFileFromCim, stat call failed for file %s", filePath)
 	}
 
 	basicInfo := &winio.FileBasicInfo{
@@ -1060,7 +1060,7 @@ func FetchFileFromCim(cimPath, filePath, destinationPath string) (err error) {
 		FileAttributes: fstats.Attributes,
 	}
 	if err := winio.SetFileBasicInfo(destinationFile, basicInfo); err != nil {
-		return fmt.Errorf("failed while setting file basic info: %s", err)
+		return errors.Wrapf(err, "FetchFileFromCim, failed to set basic file info for %s", destinationPath)
 	}
 	// TODO(ambarve):Ideally we should handle SecurityDescriptor, reparseData and
 	// extendedAttributes here but legacy layer files always pass empty values for
