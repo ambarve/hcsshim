@@ -1,4 +1,4 @@
-package fs
+package cimfs
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"unicode/utf16"
 
 	winio "github.com/Microsoft/go-winio"
-	"github.com/Microsoft/hcsshim/internal/cim/layer/format"
+	"github.com/Microsoft/hcsshim/internal/cimfs/format"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"golang.org/x/sys/windows"
 )

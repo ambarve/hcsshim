@@ -8,8 +8,7 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
-	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
@@ -20,6 +19,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/internal/wcow"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"

@@ -1,4 +1,4 @@
-package layer
+package cim
 
 import (
 	"context"
@@ -10,16 +10,17 @@ import (
 	"time"
 
 	"github.com/Microsoft/go-winio"
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	"github.com/Microsoft/hcsshim/computestorage"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/docker/docker/pkg/ioutils"
 )
 
-// createPlaceHolderHives Creates the empty place holder registry hives inside the layer
+// createPlaceHolderHives Creates the empty place holder system registry hives inside the layer
 // directory pointed by `layerPath`.
-// HCS APIs called by processBaseLayer expects the registry hive files in the layer
+// HCS APIs called by setupBaseOSLayer expects the registry hive files in the layer
 // directory at path `layerPath + regFilesPath` but in case of the cim the hives are
-// stored inside the cim and the processBaseLayer call fails if it doesn't find those
-// files so we create empty placeholder hives inside the layer directory
+// stored inside the cim and the setupBaseOSLayer call fails if it doesn't find those
+// files so we create empty placeholder hives inside the layer directory.
 func createPlaceHolderHives(layerPath string) error {
 	regDir := filepath.Join(layerPath, regFilesPath)
 	if err := os.MkdirAll(regDir, 0777); err != nil {
@@ -39,32 +40,40 @@ func createPlaceHolderHives(layerPath string) error {
 // written to the cim and hence this function expects that the cim is mountable. This
 // function creates VHD files inside the directory pointed by `layerPath` and expects the
 // the layer cim is present at the usual location retrieved by `GetCimPathFromLayer`.
-func processBaseLayer(ctx context.Context, layerPath string) (err error) {
+func processBaseLayer(ctx context.Context, layerPath string, hasUtilityVM bool) (err error) {
 	// process container base layer
 	if err = createPlaceHolderHives(layerPath); err != nil {
 		return err
 	}
-	if err = setupContainerBaseLayer(ctx, layerPath); err != nil {
+	baseVhdPath := filepath.Join(layerPath, containerBaseVhd)
+	diffVhdPath := filepath.Join(layerPath, containerScratchVhd)
+	defaultVhdSize := uint64(20)
+	if err = computestorage.SetupContainerBaseLayer(ctx, layerPath, baseVhdPath, diffVhdPath, defaultVhdSize); err != nil {
 		return fmt.Errorf("failed to setup container base layer: %s", err)
 	}
 
-	// process utilityVM base layer
-	// setupUtilityVMBaseLayer needs to access some of the layer files so we mount the cim
-	// and pass the path of the mounted cim as layerpath to setupUtilityVMBaseLayer.
-	mountpath, err := cimfs.Mount(GetCimPathFromLayer(layerPath))
-	if err != nil {
-		return fmt.Errorf("failed to mount cim : %s", err)
-	}
-	defer func() {
-		// Try to unmount irrespective of errors
-		cimfs.UnMount(GetCimPathFromLayer(layerPath))
-	}()
+	if hasUtilityVM {
+		// process utilityVM base layer
+		// setupUtilityVMBaseLayer needs to access some of the layer files so we mount the cim
+		// and pass the path of the mounted cim as layerpath to setupUtilityVMBaseLayer.
+		mountpath, err := cimfs.Mount(GetCimPathFromLayer(layerPath))
+		if err != nil {
+			return fmt.Errorf("failed to mount cim : %s", err)
+		}
+		defer func() {
+			// Try to unmount irrespective of errors
+			cimfs.UnMount(GetCimPathFromLayer(layerPath))
+		}()
 
-	if err := setupUtilityVMBaseLayer(ctx, filepath.Join(mountpath, utilityVMPath), layerPath); err != nil {
-		return fmt.Errorf("failed to setup utility vm base layer: %s", err)
-	}
-	if err = cimfs.UnMount(GetCimPathFromLayer(layerPath)); err != nil {
-		return fmt.Errorf("failed to dismount cim: %s", err)
+		baseVhdPath = filepath.Join(layerPath, utilityVMPath, utilityVMBaseVhd)
+		diffVhdPath = filepath.Join(layerPath, utilityVMPath, utilityVMScratchVhd)
+		defaultVhdSize = uint64(10)
+		if err := computestorage.SetupUtilityVMBaseLayer(ctx, filepath.Join(mountpath, utilityVMPath), baseVhdPath, diffVhdPath, defaultVhdSize); err != nil {
+			return fmt.Errorf("failed to setup utility vm base layer: %s", err)
+		}
+		if err = cimfs.UnMount(GetCimPathFromLayer(layerPath)); err != nil {
+			return fmt.Errorf("failed to dismount cim: %s", err)
+		}
 	}
 	return nil
 }
@@ -147,9 +156,9 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return fmt.Errorf("failed while updating SYSTEM registry inside cim: %s", err)
 	}
 
-	// if err := debuggingSetup(cimWriter); err != nil {
-	// 	return fmt.Errorf("failed during debugging setup: %s", err)
-	// }
+	if err := debuggingSetup(cimWriter); err != nil {
+		return fmt.Errorf("failed during debugging setup: %s", err)
+	}
 	return nil
 }
 
@@ -204,8 +213,8 @@ func debuggingSetup(cimWriter *cimfs.CimFsWriter) error {
 		hostPath string // File on the host that should be added to cim
 		cimPath  string // Path inside the cim.
 	}{
-		{"D:\\cimfs\\cimfs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\cimfs.sys"},
-		{"D:\\cimfs\\wcifs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\wcifs.sys"},
+		{"D:\\cimfs\\drivers\\cimfs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\cimfs.sys"},
+		{"D:\\cimfs\\drivers\\wcifs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\wcifs.sys"},
 	}
 	for _, replace := range overwriteFiles {
 		if err := cimWriter.AddFileFromPath(replace.cimPath, replace.hostPath, []byte{}, []byte{}, []byte{}); err != nil {

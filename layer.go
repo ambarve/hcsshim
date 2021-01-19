@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/go-winio/pkg/guid"
-	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/osversion"
 )
 

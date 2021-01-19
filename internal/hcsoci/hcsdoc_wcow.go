@@ -9,8 +9,7 @@ import (
 	"regexp"
 	"strings"
 
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
-	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	layerspkg "github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
@@ -21,6 +20,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/sirupsen/logrus"
 )

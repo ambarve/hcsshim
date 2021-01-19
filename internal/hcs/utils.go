@@ -6,9 +6,9 @@ import (
 	"syscall"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/Microsoft/go-winio/vhd"
 	"github.com/Microsoft/hcsshim/computestorage"
 	"github.com/Microsoft/hcsshim/internal/log"
-	"github.com/Microsoft/hcsshim/internal/virtdisk"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
@@ -40,20 +40,20 @@ func makeOpenFiles(hs []syscall.Handle) (_ []io.ReadWriteCloser, err error) {
 
 // CreateNTFSVHD creates a VHD formatted with NTFS of size `sizeGB` at the given `vhdPath`.
 func CreateNTFSVHD(ctx context.Context, vhdPath string, sizeGB uint32) (err error) {
-	createParams := &virtdisk.CreateVirtualDiskParameters{
+	createParams := &vhd.CreateVirtualDiskParameters{
 		Version: 2,
-		Version2: virtdisk.CreateVersion2{
+		Version2: vhd.CreateVersion2{
 			MaximumSize:      uint64(sizeGB) * 1024 * 1024 * 1024,
 			BlockSizeInBytes: 1 * 1024 * 1024,
 		},
 	}
 
-	handle, err := virtdisk.CreateVirtualDisk(ctx, vhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
+	handle, err := vhd.CreateVirtualDisk(vhdPath, vhd.VirtualDiskAccessNone, vhd.CreateVirtualDiskFlagNone, createParams)
 	if err != nil {
 		return errors.Wrap(err, "failed to create VHD")
 	}
 	defer func() {
-		if err2 := windows.CloseHandle(handle); err2 != nil {
+		if err2 := syscall.CloseHandle(handle); err2 != nil {
 			log.G(ctx).Warnf("failed to close VHD handle : %s", err2)
 		}
 	}()

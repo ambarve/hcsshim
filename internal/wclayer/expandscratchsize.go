@@ -7,13 +7,11 @@ import (
 	"syscall"
 	"unsafe"
 
+	"github.com/Microsoft/go-winio/vhd"
 	"github.com/Microsoft/hcsshim/internal/hcserror"
 	"github.com/Microsoft/hcsshim/internal/oc"
-	"github.com/Microsoft/hcsshim/internal/vhdx"
-	"github.com/Microsoft/hcsshim/internal/virtdisk"
 	"github.com/Microsoft/hcsshim/osversion"
 	"go.opencensus.io/trace"
-	"golang.org/x/sys/windows"
 )
 
 // ExpandScratchSize expands the size of a layer to at least size bytes.
@@ -45,11 +43,16 @@ func ExpandScratchSize(ctx context.Context, path string, size uint64) (err error
 func expandSandboxVolume(ctx context.Context, path string) error {
 	// Mount the sandbox VHD temporarily.
 	vhdPath := filepath.Join(path, "sandbox.vhdx")
-	vhd, err := vhdx.AttachVhdx(ctx, vhdPath, virtdisk.AttachVirtualDiskFlagNone)
+	vhdHandle, err := vhd.OpenVirtualDisk(vhdPath, vhd.VirtualDiskAccessNone, vhd.OpenVirtualDiskFlagNone)
 	if err != nil {
-		return &os.PathError{Op: "OpenVirtualDisk", Path: vhdPath, Err: err}
+		return err
 	}
-	defer windows.CloseHandle(vhd)
+	defer syscall.CloseHandle(vhdHandle)
+
+	err = vhd.AttachVirtualDisk(vhdHandle, vhd.AttachVirtualDiskFlagNone, &vhd.AttachVirtualDiskParameters{Version: 2})
+	if err != nil {
+		return err
+	}
 
 	// Open the volume.
 	volumePath, err := GetLayerMountPath(ctx, path)

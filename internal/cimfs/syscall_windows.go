@@ -1,4 +1,4 @@
-package fs
+package cimfs
 
 import (
 	"syscall"
@@ -31,7 +31,7 @@ type cimFsFileMetadata struct {
 	EACount            uint32
 }
 
-//go:generate go run ../../../mksyscall_windows.go -output zsyscall_windows.go syscall_windows.go
+//go:generate go run ../../mksyscall_windows.go -output zsyscall_windows.go syscall_windows.go
 
 //sys cimMountImage(imagePath string, fsName string, flags uint32, volumeID *g) (hr error) = cimfs.CimMountImage
 //sys cimDismountImage(volumeID *g) (hr error) = cimfs.CimDismountImage

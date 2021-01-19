@@ -1,4 +1,4 @@
-package layer
+package cim
 
 import (
 	"context"
@@ -8,18 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/Microsoft/go-winio"
-	"github.com/Microsoft/go-winio/pkg/security"
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	"github.com/Microsoft/go-winio/vhd"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/storage"
-	"github.com/Microsoft/hcsshim/internal/vhdx"
-	"github.com/Microsoft/hcsshim/internal/virtdisk"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
-	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 	"golang.org/x/sys/windows"
 )
@@ -43,6 +41,8 @@ type CimLayerWriter struct {
 	stdFileWriter *stdFileWriter
 	// reference to currently active writer either cimWriter or stdFileWriter
 	activeWriter io.Writer
+	// denotes if this layer has the UtilityVM directory
+	hasUtilityVM bool
 }
 
 const (
@@ -91,6 +91,10 @@ func isStdFile(path string) bool {
 
 // Add adds a file to the layer with given metadata.
 func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+	if name == utilityVMPath {
+		cw.hasUtilityVM = true
+	}
+
 	if isStdFile(name) {
 		if err := cw.stdFileWriter.Add(name); err != nil {
 			return err
@@ -148,7 +152,7 @@ func (cw *CimLayerWriter) Write(b []byte) (int, error) {
 
 // baseVhdHandle must be a valid open handle to a vhd if this is a layer of type hcsschema.VmLayer
 // If this is a layer of type hcsschema.ContainerLayer then handle is ignored.
-func setupBaseLayer(ctx context.Context, baseVhdHandle windows.Handle, layerPath string, layerType hcsschema.OsLayerType) error {
+func setupBaseLayer(ctx context.Context, baseVhdHandle syscall.Handle, layerPath string, layerType hcsschema.OsLayerType) error {
 	layerOptions := hcsschema.OsLayerOptions{
 		Type_:                      layerType,
 		DisableCiCacheOptimization: true,
@@ -164,7 +168,7 @@ func setupBaseLayer(ctx context.Context, baseVhdHandle windows.Handle, layerPath
 		return fmt.Errorf("failed to marshal layer options: %s", err)
 	}
 
-	if err := storage.SetupBaseOSLayer(ctx, layerPath, baseVhdHandle, string(layerOptionsJson)); err != nil {
+	if err := storage.SetupBaseOSLayer(ctx, layerPath, windows.Handle(baseVhdHandle), string(layerOptionsJson)); err != nil {
 		return fmt.Errorf("failed to setup base os layer: %s", err)
 	}
 
@@ -173,137 +177,22 @@ func setupBaseLayer(ctx context.Context, baseVhdHandle windows.Handle, layerPath
 
 func createDiffVhd(ctx context.Context, diffVhdPath, baseVhdPath string) error {
 	// create the differencing disk
-	createParams := &virtdisk.CreateVirtualDiskParameters{
+	createParams := &vhd.CreateVirtualDiskParameters{
 		Version: 2,
-		Version2: virtdisk.CreateVersion2{
+		Version2: vhd.CreateVersion2{
 			ParentPath:       windows.StringToUTF16Ptr(baseVhdPath),
 			BlockSizeInBytes: 1 * 1024 * 1024,
-			OpenFlags:        uint32(virtdisk.OpenVirtualDiskFlagCachedIO),
+			OpenFlags:        uint32(vhd.OpenVirtualDiskFlagCachedIO),
 		},
 	}
 
-	vhdHandle, err := virtdisk.CreateVirtualDisk(ctx, diffVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
+	vhdHandle, err := vhd.CreateVirtualDisk(diffVhdPath, vhd.VirtualDiskAccessNone, vhd.CreateVirtualDiskFlagNone, createParams)
 	if err != nil {
 		return fmt.Errorf("failed to create differencing vhd: %s", err)
 	}
-	if err := windows.CloseHandle(vhdHandle); err != nil {
+	if err := syscall.CloseHandle(vhdHandle); err != nil {
 		return fmt.Errorf("failed to close differencing vhd handle: %s", err)
 	}
-	return nil
-}
-
-// TODO(ambarve): Danny has already created a PR to add all of the new HCS storage APIs.
-// rebase with that PR instead
-func setupContainerBaseLayer(ctx context.Context, layerPath string) error {
-	baseVhdPath := filepath.Join(layerPath, containerBaseVhd)
-	diffVhdPath := filepath.Join(layerPath, containerScratchVhd)
-
-	createParams := &virtdisk.CreateVirtualDiskParameters{
-		Version: 2,
-		Version2: virtdisk.CreateVersion2{
-			MaximumSize:      uint64(20) * 1024 * 1024 * 1024,
-			BlockSizeInBytes: 1 * 1024 * 1024,
-		},
-	}
-
-	handle, err := virtdisk.CreateVirtualDisk(ctx, baseVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
-	if err != nil {
-		return fmt.Errorf("failed to create VHD: %s", err)
-	}
-
-	if err = storage.FormatWritableLayerVhd(ctx, handle); err != nil {
-		return errors.Wrap(err, "failed to format VHD")
-	}
-
-	// base vhd handle must be closed before calling SetupBaseLayer in case of Container layer
-	if err = windows.CloseHandle(handle); err != nil {
-		return fmt.Errorf("failed to close VHD handle : %s", err)
-	}
-
-	if err = setupBaseLayer(ctx, handle, layerPath, hcsschema.ContainerLayer); err != nil {
-		return fmt.Errorf("failed to setup container base layer: %s", err)
-	}
-
-	if err = createDiffVhd(ctx, diffVhdPath, baseVhdPath); err != nil {
-		return err
-	}
-
-	if err := security.GrantVmGroupAccess(baseVhdPath); err != nil {
-		return fmt.Errorf("failed to grant vm group access to %s: %s", baseVhdPath, err)
-	}
-
-	if err := security.GrantVmGroupAccess(diffVhdPath); err != nil {
-		return fmt.Errorf("failed to grant vm group access to %s: %s", diffVhdPath, err)
-	}
-	return nil
-}
-
-// `layerPath` must be the path at which all of the layer files can be accessed and `vhdCreationPath` must
-// a path inside which the vhd files for uvm will be created.
-func setupUtilityVMBaseLayer(ctx context.Context, layerPath, vhdCreationPath string) error {
-	baseVhdPath := filepath.Join(vhdCreationPath, utilityVMPath, utilityVMBaseVhd)
-	diffVhdPath := filepath.Join(vhdCreationPath, utilityVMPath, utilityVMScratchVhd)
-
-	// Just create the vhd for utilityVM layer, no need to format it.
-	createParams := &virtdisk.CreateVirtualDiskParameters{
-		Version: 2,
-		Version2: virtdisk.CreateVersion2{
-			MaximumSize:      uint64(10) * 1024 * 1024 * 1024,
-			BlockSizeInBytes: 1 * 1024 * 1024,
-		},
-	}
-
-	handle, err := virtdisk.CreateVirtualDisk(ctx, baseVhdPath, virtdisk.VirtualDiskAccessFlagNone, virtdisk.CreateVirtualDiskFlagNone, createParams)
-	if err != nil {
-		return fmt.Errorf("failed to create VHD: %s", err)
-	}
-
-	// If it is a utilityVM layer then the base vhd must be attached when calling
-	// SetupBaseOSLayer
-	attachParams := &virtdisk.AttachVirtualDiskParameters{
-		Version: 2,
-	}
-	err = virtdisk.AttachVirtualDisk(ctx, handle, virtdisk.AttachVirtualDiskFlagNone, attachParams)
-	if err != nil {
-		return err
-	}
-
-	if err = setupBaseLayer(ctx, handle, layerPath, hcsschema.VmLayer); err != nil {
-		return fmt.Errorf("failed to setup utility vm base layer: %s", err)
-	}
-
-	if err = virtdisk.DetachVirtualDisk(ctx, handle); err != nil {
-		return fmt.Errorf("failed to detach VHD: %s", err)
-	}
-
-	if err = windows.CloseHandle(handle); err != nil {
-		return fmt.Errorf("failed to close VHD handle: %s", err)
-	}
-
-	partitionInfo, err := vhdx.GetScratchVhdPartitionInfo(ctx, baseVhdPath)
-	if err != nil {
-		return fmt.Errorf("failed to get base vhd layout info: %s", err)
-	}
-
-	if err := updateBcdStoreForBoot(filepath.Join(vhdCreationPath, bcdFilePath), partitionInfo.DiskID, partitionInfo.PartitionID); err != nil {
-		return fmt.Errorf("failed to update BCD: %s", err)
-	}
-
-	// Note: diff vhd creation and granting of vm group access must be done AFTER
-	// getting the partition info of the base VHD. Otherwise it causes the vhd parent
-	// chain to get corrupted.
-	if err = createDiffVhd(ctx, diffVhdPath, baseVhdPath); err != nil {
-		return err
-	}
-
-	if err := security.GrantVmGroupAccess(baseVhdPath); err != nil {
-		return fmt.Errorf("failed to grant vm group access to %s: %s", baseVhdPath, err)
-	}
-
-	if err := security.GrantVmGroupAccess(diffVhdPath); err != nil {
-		return fmt.Errorf("failed to grant vm group access to %s: %s", diffVhdPath, err)
-	}
-
 	return nil
 }
 
@@ -319,7 +208,7 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 	}
 
 	if len(cw.parentLayerPaths) == 0 {
-		if err := processBaseLayer(ctx, cw.path); err != nil {
+		if err := processBaseLayer(ctx, cw.path, cw.hasUtilityVM); err != nil {
 			return fmt.Errorf("processBaseLayer failed: %s", err)
 		}
 
@@ -331,9 +220,6 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 			return fmt.Errorf("failed to process layer: %s", err)
 		}
 	}
-
-	// TODO(ambarve): Add a failure if we see files inside UtilityVM directory in a non-base layer.
-
 	return nil
 }
 

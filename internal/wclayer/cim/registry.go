@@ -1,75 +1,16 @@
-package layer
+package cim
 
 import (
-	"bytes"
 	"fmt"
 	"io/ioutil"
 	"os"
-	"os/exec"
 	"path/filepath"
 
-	"github.com/Microsoft/go-winio/pkg/guid"
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/pkg/errors"
 )
-
-func bcdExec(storePath string, args ...string) error {
-	var out bytes.Buffer
-	argsArr := []string{"/store", storePath, "/offline"}
-	argsArr = append(argsArr, args...)
-	cmd := exec.Command("bcdedit.exe", argsArr...)
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("bcd command (%s) failed: %s", cmd, err)
-	}
-	return nil
-}
-
-// A registry configuration required for the uvm.
-func setBcdRestartOnFailure(storePath string) error {
-	return bcdExec(storePath, "/set", "{default}", "restartonfailure", "yes")
-}
-
-// A registry configuration required for the uvm.
-func setBcdVmbusBootDevice(storePath string) error {
-	vmbusDeviceStr := "vmbus={c63c9bdf-5fa5-4208-b03f-6b458b365592}"
-	if err := bcdExec(storePath, "/set", "{default}", "device", vmbusDeviceStr); err != nil {
-		return err
-	}
-
-	if err := bcdExec(storePath, "/set", "{default}", "osdevice", vmbusDeviceStr); err != nil {
-		return err
-	}
-
-	if err := bcdExec(storePath, "/set", "{bootmgr}", "alternatebootdevice", vmbusDeviceStr); err != nil {
-		return err
-	}
-	return nil
-}
-
-// A registry configuration required for the uvm.
-func setBcdOsArcDevice(storePath string, diskID, partitionID guid.GUID) error {
-	return bcdExec(storePath, "/set", "{default}", "osarcdevice", fmt.Sprintf("gpt_partition={%s};{%s}", diskID, partitionID))
-}
-
-// updateBcdStoreForBoot Updates the bcd store at path `storePath` to boot with the disk
-// with given ID and given partitionID.
-func updateBcdStoreForBoot(storePath string, diskID, partitionID guid.GUID) error {
-	if err := setBcdRestartOnFailure(storePath); err != nil {
-		return err
-	}
-
-	if err := setBcdVmbusBootDevice(storePath); err != nil {
-		return err
-	}
-
-	if err := setBcdOsArcDevice(storePath, diskID, partitionID); err != nil {
-		return err
-	}
-	return nil
-}
 
 // enableCimBoot Opens the SYSTEM registry hive at path `hivePath` in
 // `layerPath` and updates it to include a CIMFS Start registry key. This prepares the uvm
@@ -123,23 +64,6 @@ func enableCimBoot(layerPath, hivePath string) (err error) {
 	}
 	return nil
 
-}
-
-// Only added to help with debugging the uvm
-func setDebugOn(storePath string) error {
-	if err := bcdExec(storePath, "/set", "{default}", "testsigning", "on"); err != nil {
-		return err
-	}
-	if err := bcdExec(storePath, "/set", "{default}", "bootdebug", "on"); err != nil {
-		return err
-	}
-	if err := bcdExec(storePath, "/set", "{bootmgr}", "bootdebug", "on"); err != nil {
-		return err
-	}
-	if err := bcdExec(storePath, "/dbgsettings", "SERIAL", "DEBUGPORT:1", "BAUDRATE:115200"); err != nil {
-		return err
-	}
-	return bcdExec(storePath, "/set", "{default}", "debug", "on")
 }
 
 // mergeWithParentLayerHives merges the delta hives of current layer with the base registry

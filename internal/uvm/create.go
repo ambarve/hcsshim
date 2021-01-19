@@ -8,8 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
-	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -17,6 +16,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"

@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"path/filepath"
 
-	cimfs "github.com/Microsoft/hcsshim/internal/cim/fs"
-	cimlayer "github.com/Microsoft/hcsshim/internal/cim/layer"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	uvmpkg "github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
-	"github.com/Microsoft/hcsshim/osversion"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 )
