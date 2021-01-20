@@ -95,7 +95,7 @@ func addBootFromCimRegistryChanges(layerFolders []string, reg *hcsschema.Registr
 			},
 			Name:       "WCIFSCIMFSContainerMode",
 			Type_:      "DWord",
-			DWordValue: 1,
+			DWordValue: 2,
 		},
 		{
 			Key: &hcsschema.RegistryKey{
