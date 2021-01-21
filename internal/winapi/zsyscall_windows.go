@@ -43,6 +43,7 @@ var (
 	modcfgmgr32 = windows.NewLazySystemDLL("cfgmgr32.dll")
 	modntdll    = windows.NewLazySystemDLL("ntdll.dll")
 	modoffreg   = windows.NewLazySystemDLL("offreg.dll")
+	modcimfs    = windows.NewLazySystemDLL("cimfs.dll")
 
 	procSetJobCompartmentId                  = modiphlpapi.NewProc("SetJobCompartmentId")
 	procGetQueuedCompletionStatus            = modkernel32.NewProc("GetQueuedCompletionStatus")
@@ -75,6 +76,17 @@ var (
 	procORDeleteKey                          = modoffreg.NewProc("ORDeleteKey")
 	procORGetValue                           = modoffreg.NewProc("ORGetValue")
 	procORSetValue                           = modoffreg.NewProc("ORSetValue")
+	procCimMountImage                        = modcimfs.NewProc("CimMountImage")
+	procCimDismountImage                     = modcimfs.NewProc("CimDismountImage")
+	procCimCreateImage                       = modcimfs.NewProc("CimCreateImage")
+	procCimCloseImage                        = modcimfs.NewProc("CimCloseImage")
+	procCimCommitImage                       = modcimfs.NewProc("CimCommitImage")
+	procCimCreateFile                        = modcimfs.NewProc("CimCreateFile")
+	procCimCloseStream                       = modcimfs.NewProc("CimCloseStream")
+	procCimWriteStream                       = modcimfs.NewProc("CimWriteStream")
+	procCimDeletePath                        = modcimfs.NewProc("CimDeletePath")
+	procCimCreateHardLink                    = modcimfs.NewProc("CimCreateHardLink")
+	procCimCreateAlternateStream             = modcimfs.NewProc("CimCreateAlternateStream")
 )
 
 func SetJobCompartmentId(handle windows.Handle, compartmentId uint32) (win32Err error) {
@@ -452,6 +464,224 @@ func _OrSetValue(handle OrHKey, valueName *uint16, valueType uint32, data *byte,
 	r0, _, _ := syscall.Syscall6(procORSetValue.Addr(), 5, uintptr(handle), uintptr(unsafe.Pointer(valueName)), uintptr(valueType), uintptr(unsafe.Pointer(data)), uintptr(dataLen), 0)
 	if r0 != 0 {
 		win32err = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimMountImage(imagePath string, fsName string, flags uint32, volumeID *g) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(fsName)
+	if hr != nil {
+		return
+	}
+	return _CimMountImage(_p0, _p1, flags, volumeID)
+}
+
+func _CimMountImage(imagePath *uint16, fsName *uint16, flags uint32, volumeID *g) (hr error) {
+	if hr = procCimMountImage.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall6(procCimMountImage.Addr(), 4, uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(fsName)), uintptr(flags), uintptr(unsafe.Pointer(volumeID)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimDismountImage(volumeID *g) (hr error) {
+	if hr = procCimDismountImage.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimDismountImage.Addr(), 1, uintptr(unsafe.Pointer(volumeID)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCreateImage(imagePath string, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	return _CimCreateImage(_p0, oldFSName, newFSName, cimFSHandle)
+}
+
+func _CimCreateImage(imagePath *uint16, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
+	if hr = procCimCreateImage.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall6(procCimCreateImage.Addr(), 4, uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(oldFSName)), uintptr(unsafe.Pointer(newFSName)), uintptr(unsafe.Pointer(cimFSHandle)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCloseImage(cimFSHandle FsHandle) (hr error) {
+	if hr = procCimCloseImage.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimCloseImage.Addr(), 1, uintptr(cimFSHandle), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCommitImage(cimFSHandle FsHandle) (hr error) {
+	if hr = procCimCommitImage.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimCommitImage.Addr(), 1, uintptr(cimFSHandle), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCreateFile(cimFSHandle FsHandle, path string, file *CimFsFileMetadata, cimStreamHandle *StreamHandle) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
+		return
+	}
+	return _CimCreateFile(cimFSHandle, _p0, file, cimStreamHandle)
+}
+
+func _CimCreateFile(cimFSHandle FsHandle, path *uint16, file *CimFsFileMetadata, cimStreamHandle *StreamHandle) (hr error) {
+	if hr = procCimCreateFile.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall6(procCimCreateFile.Addr(), 4, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), uintptr(unsafe.Pointer(file)), uintptr(unsafe.Pointer(cimStreamHandle)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCloseStream(cimStreamHandle StreamHandle) (hr error) {
+	if hr = procCimCloseStream.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimCloseStream.Addr(), 1, uintptr(cimStreamHandle), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimWriteStream(cimStreamHandle StreamHandle, buffer uintptr, bufferSize uint32) (hr error) {
+	if hr = procCimWriteStream.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimWriteStream.Addr(), 3, uintptr(cimStreamHandle), uintptr(buffer), uintptr(bufferSize))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimDeletePath(cimFSHandle FsHandle, path string) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
+		return
+	}
+	return _CimDeletePath(cimFSHandle, _p0)
+}
+
+func _CimDeletePath(cimFSHandle FsHandle, path *uint16) (hr error) {
+	if hr = procCimDeletePath.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimDeletePath.Addr(), 2, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCreateHardLink(cimFSHandle FsHandle, newPath string, oldPath string) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(newPath)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(oldPath)
+	if hr != nil {
+		return
+	}
+	return _CimCreateHardLink(cimFSHandle, _p0, _p1)
+}
+
+func _CimCreateHardLink(cimFSHandle FsHandle, newPath *uint16, oldPath *uint16) (hr error) {
+	if hr = procCimCreateHardLink.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall(procCimCreateHardLink.Addr(), 3, uintptr(cimFSHandle), uintptr(unsafe.Pointer(newPath)), uintptr(unsafe.Pointer(oldPath)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCreateAlternateStream(cimFSHandle FsHandle, path string, size uint64, cimStreamHandle *StreamHandle) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
+		return
+	}
+	return _CimCreateAlternateStream(cimFSHandle, _p0, size, cimStreamHandle)
+}
+
+func _CimCreateAlternateStream(cimFSHandle FsHandle, path *uint16, size uint64, cimStreamHandle *StreamHandle) (hr error) {
+	if hr = procCimCreateAlternateStream.Find(); hr != nil {
+		return
+	}
+	r0, _, _ := syscall.Syscall6(procCimCreateAlternateStream.Addr(), 4, uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), uintptr(size), uintptr(unsafe.Pointer(cimStreamHandle)), 0, 0)
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
 	}
 	return
 }

@@ -315,6 +315,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 				},
 			},
 			Devices: &hcsschema.Devices{
+				// TODO(ambarve): Remvoe this port
 				ComPorts: map[string]hcsschema.ComPort{
 					"0": {
 						NamedPipe: "\\\\.\\pipe\\debugpipe",

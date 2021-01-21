@@ -6,6 +6,7 @@ import (
 
 	"github.com/Microsoft/go-winio/pkg/guid"
 	hcsschema "github.com/Microsoft/hcsshim/internal/schema2"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
 )
 
@@ -45,7 +46,7 @@ func Mount(cimPath string) (string, error) {
 		if err != nil {
 			return "", &MountError{Cim: cimPath, Op: "Mount", Err: err}
 		}
-		if err := cimMountImage(filepath.Dir(cimPath), filepath.Base(cimPath), hcsschema.CimMountFlagCacheFiles, &layerGUID); err != nil {
+		if err := winapi.CimMountImage(filepath.Dir(cimPath), filepath.Base(cimPath), hcsschema.CimMountFlagCacheFiles, &layerGUID); err != nil {
 			return "", &MountError{Cim: cimPath, Op: "Mount", VolumeGUID: layerGUID, Err: err}
 		}
 		hostCimMounts[cimPath] = &cimInfo{cimPath, layerGUID, 0}
@@ -72,7 +73,7 @@ func UnMount(cimPath string) error {
 		return errors.Errorf("cim not mounted")
 	}
 	if ci.refCount == 1 {
-		if err := cimDismountImage(&ci.cimID); err != nil {
+		if err := winapi.CimDismountImage(&ci.cimID); err != nil {
 			return &MountError{Cim: cimPath, Op: "UnMount", Err: err}
 		}
 		delete(hostCimMounts, cimPath)

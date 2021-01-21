@@ -156,9 +156,10 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return fmt.Errorf("failed while updating SYSTEM registry inside cim: %s", err)
 	}
 
-	if err := debuggingSetup(cimWriter); err != nil {
-		return fmt.Errorf("failed during debugging setup: %s", err)
-	}
+	//TODO(ambarve): Remove this
+	// if err := debuggingSetup(cimWriter); err != nil {
+	// 	return fmt.Errorf("failed during debugging setup: %s", err)
+	// }
 	return nil
 }
 

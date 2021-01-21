@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
 	"golang.org/x/sys/windows"
 )
@@ -17,11 +18,11 @@ type CimFsWriter struct {
 	// name of this cim. Usually a <name>.cim file will be created to represent this cim.
 	name string
 	// handle is the CIMFS_IMAGE_HANDLE that must be passed when calling CIMFS APIs.
-	handle FsHandle
+	handle winapi.FsHandle
 	// name of the active file i.e the file to which we are currently writing.
 	activeName string
 	// stream to currently active file.
-	activeStream StreamHandle
+	activeStream winapi.StreamHandle
 	// amount of bytes that can be written to the activeStream.
 	activeLeft int64
 }
@@ -45,8 +46,8 @@ func Create(imagePath string, oldFSName string, newFSName string) (_ *CimFsWrite
 			return nil, err
 		}
 	}
-	var handle FsHandle
-	if err := cimCreateImage(imagePath, oldNameBytes, newNameBytes, &handle); err != nil {
+	var handle winapi.FsHandle
+	if err := winapi.CimCreateImage(imagePath, oldNameBytes, newNameBytes, &handle); err != nil {
 		return nil, err
 	}
 	return &CimFsWriter{handle: handle, name: filepath.Join(imagePath, fsName)}, nil
@@ -60,7 +61,7 @@ func (c *CimFsWriter) CreateAlternateStream(path string, size uint64) (err error
 	if err != nil {
 		return err
 	}
-	err = cimCreateAlternateStream(c.handle, path, size, &c.activeStream)
+	err = winapi.CimCreateAlternateStream(c.handle, path, size, &c.activeStream)
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func (c *CimFsWriter) closeStream() error {
 	if c.activeStream == 0 {
 		return nil
 	}
-	err := cimCloseStream(c.activeStream)
+	err := winapi.CimCloseStream(c.activeStream)
 	if err == nil && c.activeLeft > 0 {
 		// Validate here because CimCloseStream does not and this improves error
 		// reporting. Otherwise the error will occur in the context of
@@ -96,7 +97,7 @@ func (c *CimFsWriter) AddFile(path string, info *winio.FileBasicInfo, fileSize i
 	if err != nil {
 		return err
 	}
-	fileMetadata := &cimFsFileMetadata{
+	fileMetadata := &winapi.CimFsFileMetadata{
 		Attributes:     info.FileAttributes,
 		FileSize:       fileSize,
 		CreationTime:   info.CreationTime,
@@ -119,7 +120,7 @@ func (c *CimFsWriter) AddFile(path string, info *winio.FileBasicInfo, fileSize i
 		fileMetadata.ExtendedAttributes = unsafe.Pointer(&extendedAttributes[0])
 		fileMetadata.EACount = uint32(len(extendedAttributes))
 	}
-	err = cimCreateFile(c.handle, path, fileMetadata, &c.activeStream)
+	err = winapi.CimCreateFile(c.handle, path, fileMetadata, &c.activeStream)
 	if err != nil {
 		return &PathError{Cim: c.name, Op: "addFile", Path: path, Err: err}
 	}
@@ -167,7 +168,7 @@ func (c *CimFsWriter) Write(p []byte) (int, error) {
 	if int64(len(p)) > c.activeLeft {
 		return 0, &PathError{Cim: c.name, Op: "write", Path: c.activeName, Err: errors.New("wrote too much")}
 	}
-	err := cimWriteStream(c.activeStream, uintptr(unsafe.Pointer(&p[0])), uint32(len(p)))
+	err := winapi.CimWriteStream(c.activeStream, uintptr(unsafe.Pointer(&p[0])), uint32(len(p)))
 	if err != nil {
 		err = &PathError{Cim: c.name, Op: "write", Path: c.activeName, Err: err}
 		return 0, err
@@ -182,7 +183,7 @@ func (c *CimFsWriter) AddLink(oldPath string, newPath string) error {
 	if err != nil {
 		return err
 	}
-	err = cimCreateHardLink(c.handle, newPath, oldPath)
+	err = winapi.CimCreateHardLink(c.handle, newPath, oldPath)
 	if err != nil {
 		err = &LinkError{Cim: c.name, Op: "addLink", Old: oldPath, New: newPath, Err: err}
 	}
@@ -195,7 +196,7 @@ func (c *CimFsWriter) Unlink(path string) error {
 	if err != nil {
 		return err
 	}
-	err = cimDeletePath(c.handle, path)
+	err = winapi.CimDeletePath(c.handle, path)
 	if err != nil {
 		err = &PathError{Cim: c.name, Op: "unlink", Path: path, Err: err}
 	}
@@ -207,7 +208,7 @@ func (c *CimFsWriter) commit() error {
 	if err != nil {
 		return err
 	}
-	err = cimCommitImage(c.handle)
+	err = winapi.CimCommitImage(c.handle)
 	if err != nil {
 		err = &OpError{Cim: c.name, Op: "commit", Err: err}
 	}
@@ -222,7 +223,7 @@ func (c *CimFsWriter) Close() error {
 	if err := c.commit(); err != nil {
 		return &OpError{Cim: c.name, Op: "commit", Err: err}
 	}
-	if err := cimCloseImage(c.handle); err != nil {
+	if err := winapi.CimCloseImage(c.handle); err != nil {
 		return &OpError{Cim: c.name, Op: "close", Err: err}
 	}
 	c.handle = 0
