@@ -38,5 +38,5 @@ const (
 
 	// minimum build required for cimfs
 	//TODO(ambarve): replace this with correct value before merging
-	IRON_BUILD = 21280
+	V21H1 = 21280
 )
