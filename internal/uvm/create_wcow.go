@@ -3,11 +3,14 @@ package uvm
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/gcs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
@@ -18,12 +21,16 @@ import (
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
 	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/internal/wcow"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/containerd/ttrpc"
+
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
 )
+
+const cimVsmbShareName = "bootcimdir"
 
 // OptionsWCOW are the set of options passed to CreateWCOW() to create a utility vm.
 type OptionsWCOW struct {
@@ -46,6 +53,104 @@ type OptionsWCOW struct {
 	// which holds all the information about the template from
 	// which this clone should be created.
 	TemplateConfig *UVMTemplateConfig
+}
+
+// mountUvmCimLayers mounts the cim layers for use of the uvm and returns the new set of
+// layers which contain the path to the mounted cim.
+func mountUvmCimLayers(ctx context.Context, layerFolders []string) (_ []string, err error) {
+	cimLayers := []string{}
+	cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
+	cimMountPath, err := cimfs.Mount(cimPath)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			cimfs.Unmount(cimPath)
+		}
+	}()
+
+	cimLayers = append(cimLayers, cimMountPath)
+	cimLayers = append(cimLayers, layerFolders[len(layerFolders)-1])
+	return cimLayers, nil
+}
+
+// addBootFromCimRegistryChanges adds several registry keys to make the uvm directly
+// boot from a cim. Note that this is only supported for IRON+ uvms. Details of these keys
+// are as follows:
+// 1. To notify the uvm that this boot should happen directly from a cim:
+// - ControlSet001\Control\HVSI /v WCIFSCIMFSContainerMode /t REG_DWORD /d 0x1
+// - ControlSet001\Control\HVSI /v WCIFSContainerMode /t REG_DWORD /d 0x1
+// 2. We also need to provide the path inside the uvm at which this cim can be
+// accessed. In order to share the cim inside the uvm at boot time we always add a vsmb
+// share by name `$cimVsmbShareName` into the uvm to share the directory which contains
+// the cim of that layer. This registry key should specify a path whose first element is
+// the name of that share and the second element is the name of the cim.
+// - ControlSet001\Control\HVSI /v CimRelativePath /t REG_SZ /d  $CimVsmbShareName`+\\+`$nameofthelayercim`
+// 3. A cim that is shared inside the uvm includes files for both the uvm and the
+// containers. All the files for the uvm are kept inside the `UtilityVM\Files` directory
+// so below registry key specifies the name of this directory inside the cim which
+// contains all the uvm related files.
+// - ControlSet001\Control\HVSI /v UvmLayerRelativePath /t REG_SZ /d UtilityVM\\Files\\ (the ending \\ is important)
+func addBootFromCimRegistryChanges(layerFolders []string, reg *hcsschema.RegistryChanges) {
+	cimRelativePath := cimVsmbShareName + "\\" + cimlayer.GetCimNameFromLayer(layerFolders[0])
+
+	regChanges := []hcsschema.RegistryValue{
+		{
+			Key: &hcsschema.RegistryKey{
+				Hive: "System",
+				Name: "ControlSet001\\Control\\HVSI",
+			},
+			Name:       "WCIFSCIMFSContainerMode",
+			Type_:      "DWord",
+			DWordValue: 1,
+		},
+		{
+			Key: &hcsschema.RegistryKey{
+				Hive: "System",
+				Name: "ControlSet001\\Control\\HVSI",
+			},
+			Name:       "WCIFSContainerMode",
+			Type_:      "DWord",
+			DWordValue: 1,
+		},
+		{
+			Key: &hcsschema.RegistryKey{
+				Hive: "System",
+				Name: "ControlSet001\\Control\\HVSI",
+			},
+			Name:        "CimRelativePath",
+			Type_:       "String",
+			StringValue: cimRelativePath,
+		},
+		{
+			Key: &hcsschema.RegistryKey{
+				Hive: "System",
+				Name: "ControlSet001\\Control\\HVSI",
+			},
+			Name:        "UvmLayerRelativePath",
+			Type_:       "String",
+			StringValue: "UtilityVM\\Files\\",
+		},
+	}
+
+	reg.AddValues = append(reg.AddValues, regChanges...)
+}
+
+// getUvmBuildVersion tries to read the `uvmbuildversion` file from the layer directory in order
+// to get the build of the uvm.
+// The file is expected to be present on the base layer i.e layerPaths[len(layerPaths) - 2] layer.
+func getUvmBuildVersion(layerPaths []string) (uint16, error) {
+	buildFilePath := filepath.Join(layerPaths[len(layerPaths)-2], "uvmbuildversion")
+	data, err := ioutil.ReadFile(buildFilePath)
+	if err != nil {
+		return 0, err
+	}
+	ver, err := strconv.ParseUint(string(data), 10, 16)
+	if err != nil {
+		return 0, err
+	}
+	return uint16(ver), nil
 }
 
 // NewDefaultOptionsWCOW creates the default options for a bootable version of
@@ -91,8 +196,12 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
+	if cimlayer.IsCimLayer(opts.LayerFolders[0]) {
+		vsmbOpts.NoDirectmap = !uvm.MountCimSupported()
+	}
+
 	virtualSMB := &hcsschema.VirtualSmb{
-		DirectFileMappingInMB: 1024, // Sensible default, but could be a tuning parameter somewhere
+		DirectFileMappingInMB: 2048, // Sensible default, but could be a tuning parameter somewhere
 		Shares: []hcsschema.VirtualSmbShare{
 			{
 				Name:    "os",
@@ -101,6 +210,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			},
 		},
 	}
+	uvm.registerVSMBShare(filepath.Join(uvmFolder, `UtilityVM\Files`), vsmbOpts, "os")
 
 	// Here for a temporary workaround until the need for setting this regkey is no more. To protect
 	// against any undesired behavior (such as some general networking scenarios ceasing to function)
@@ -121,6 +231,21 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 				},
 			},
 		}
+	}
+
+	if uvm.MountCimSupported() {
+		// If mount cim is supported then we must include a VSMB share in uvm
+		// config that contains the cim which the uvm should use to boot.
+		cimVsmbShare := hcsschema.VirtualSmbShare{
+			Name:    cimVsmbShareName,
+			Path:    cimlayer.GetCimDirFromLayer(opts.LayerFolders[0]),
+			Options: vsmbOpts,
+		}
+		virtualSMB.Shares = append(virtualSMB.Shares, cimVsmbShare)
+		uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[0]), vsmbOpts, cimVsmbShareName)
+
+		// enable boot from cim
+		addBootFromCimRegistryChanges(opts.LayerFolders, &registryChanges)
 	}
 
 	processor := &hcsschema.Processor2{
@@ -226,6 +351,13 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		physicallyBacked:        !opts.AllowOvercommit,
 		devicesPhysicallyBacked: opts.FullyPhysicallyBacked,
 		createOpts:              *opts,
+		cimMounts:               make(map[string]*cimInfo),
+		layerFolders:            opts.LayerFolders,
+	}
+
+	uvm.buildVersion, err = getUvmBuildVersion(opts.LayerFolders)
+	if err != nil {
+		return nil, err
 	}
 
 	defer func() {
@@ -238,9 +370,19 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		return nil, errors.Wrap(err, errBadUVMOpts.Error())
 	}
 
-	uvmFolder, err := uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
+	uvmLayers := opts.LayerFolders
+	templateVhdFolder, err := uvmfolder.LocateUVMFolder(ctx, uvmLayers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+	}
+
+	uvmFolder := templateVhdFolder
+	if cimlayer.IsCimLayer(opts.LayerFolders[0]) {
+		uvmLayers, err = mountUvmCimLayers(ctx, opts.LayerFolders)
+		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, uvmLayers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from cim layer folders: %s", err)
+		}
 	}
 
 	// TODO: BUGBUG Remove this. @jhowardmsft
@@ -267,7 +409,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		// Create sandbox.vhdx in the scratch folder based on the template, granting the correct permissions to it
 		scratchPath := filepath.Join(scratchFolder, "sandbox.vhdx")
 		if _, err := os.Stat(scratchPath); os.IsNotExist(err) {
-			if err := wcow.CreateUVMScratch(ctx, uvmFolder, scratchFolder, uvm.id); err != nil {
+			if err := wcow.CreateUVMScratch(ctx, templateVhdFolder, scratchFolder, uvm.id); err != nil {
 				return nil, fmt.Errorf("failed to create scratch: %s", err)
 			}
 		} else {

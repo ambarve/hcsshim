@@ -79,6 +79,7 @@ const (
 	ResourceTypeVPMemDevice       ResourceType = "VPMemDevice"
 	ResourceTypeVPCIDevice        ResourceType = "VPCIDevice"
 	ResourceTypeHvSocket          ResourceType = "HvSocket"
+	ResourceTypeCimMount          ResourceType = "CimMount"
 )
 
 // GuestRequest is for modify commands passed to the guest.
