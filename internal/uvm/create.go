@@ -19,6 +19,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/osversion"
 )
 
@@ -166,6 +167,9 @@ func verifyOptions(ctx context.Context, options interface{}) error {
 		if opts.IsTemplate && opts.FullyPhysicallyBacked {
 			return errors.New("template can not be created from a full physically backed UVM")
 		}
+		if (opts.IsTemplate || opts.IsClone) && cimlayer.IsCimLayer(opts.LayerFolders[1]) {
+			return errors.New("cloning is not supported with cimfs")
+		}
 	}
 	return nil
 }
@@ -259,8 +263,11 @@ func (uvm *UtilityVM) Close() (err error) {
 		uvm.outputListener = nil
 	}
 	if uvm.hcsSystem != nil {
-		return uvm.hcsSystem.Close()
+		if err := uvm.hcsSystem.Close(); err != nil {
+			log.G(ctx).Warnf("failure during hcs system close: %s", err)
+		}
 	}
+
 	return nil
 }
 
