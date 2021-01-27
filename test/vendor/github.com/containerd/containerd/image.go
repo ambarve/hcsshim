@@ -61,6 +61,8 @@ type Image interface {
 	ContentStore() content.Store
 	// Metadata returns the underlying image metadata
 	Metadata() images.Image
+	// Platform returns the platform match comparer. Can be nil.
+	Platform() platforms.MatchComparer
 }
 
 type usageOptions struct {
@@ -344,6 +346,7 @@ func (i *image) Unpack(ctx context.Context, snapshotterName string, opts ...Unpa
 	}
 
 	for _, layer := range layers {
+		config.ApplyOpts = append(config.ApplyOpts, diff.WithSnapshotterName(snapshotterName))
 		unpacked, err = rootfs.ApplyLayerWithOpts(ctx, layer, chain, sn, a, config.SnapshotOpts, config.ApplyOpts)
 		if err != nil {
 			return err
@@ -400,7 +403,7 @@ func (i *image) getLayers(ctx context.Context, platform platforms.MatchComparer,
 		return nil, errors.Wrap(err, "failed to resolve rootfs")
 	}
 	if len(diffIDs) != len(manifest.Layers) {
-		return nil, errors.Errorf("mismatched image rootfs and manifest layers")
+		return nil, errors.New("mismatched image rootfs and manifest layers")
 	}
 	layers := make([]rootfs.Layer, len(diffIDs))
 	for i := range diffIDs {
@@ -447,4 +450,8 @@ func (i *image) checkSnapshotterSupport(ctx context.Context, snapshotterName str
 
 func (i *image) ContentStore() content.Store {
 	return i.client.ContentStore()
+}
+
+func (i *image) Platform() platforms.MatchComparer {
+	return i.platform
 }

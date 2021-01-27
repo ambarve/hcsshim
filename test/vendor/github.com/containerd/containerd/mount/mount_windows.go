@@ -18,6 +18,7 @@ package mount
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -28,10 +29,26 @@ import (
 var (
 	// ErrNotImplementOnWindows is returned when an action is not implemented for windows
 	ErrNotImplementOnWindows = errors.New("not implemented under windows")
+	hostMounts               = make(map[string]*Mount)
 )
 
+func (m *Mount) Mount(target string) (err error) {
+	if _, ok := hostMounts[target]; ok {
+		return errors.Errorf("another layer is already mounted at %s", target)
+	}
+	if m.Type == "cimfs" {
+		_, err = cimMount(m, target)
+	} else {
+		err = legacyMount(m, target)
+	}
+	if err == nil {
+		hostMounts[target] = m
+	}
+	return err
+}
+
 // Mount to the provided target
-func (m *Mount) Mount(target string) error {
+func legacyMount(m *Mount, target string) error {
 	if m.Type != "windows-layer" {
 		return errors.Errorf("invalid windows mount type: '%s'", m.Type)
 	}
@@ -50,14 +67,20 @@ func (m *Mount) Mount(target string) error {
 	if err = hcsshim.ActivateLayer(di, layerID); err != nil {
 		return errors.Wrapf(err, "failed to activate layer %s", m.Source)
 	}
-	defer func() {
-		if err != nil {
-			hcsshim.DeactivateLayer(di, layerID)
-		}
-	}()
 
 	if err = hcsshim.PrepareLayer(di, layerID, parentLayerPaths); err != nil {
 		return errors.Wrapf(err, "failed to prepare layer %s", m.Source)
+	}
+
+	// We can link the layer mount path to the given target. It is an UNC path, and it needs
+	// a trailing backslash.
+	mountPath, err := hcsshim.GetLayerMountPath(di, layerID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get layer mount path for %s", m.Source)
+	}
+	mountPath = mountPath + `\`
+	if err = os.Symlink(mountPath, target); err != nil {
+		return errors.Wrapf(err, "failed to link mount to taget %s", target)
 	}
 	return nil
 }
@@ -82,6 +105,20 @@ func (m *Mount) GetParentPaths() ([]string, error) {
 
 // Unmount the mount at the provided path
 func Unmount(mount string, flags int) error {
+	if _, ok := hostMounts[mount]; !ok {
+		return nil
+	}
+	// unmount procedure is same for both cimfs & legacy in this case.
+	return legacyUnmount(mount, flags)
+}
+
+// UnmountAll unmounts from the provided path
+func UnmountAll(mount string, flags int) error {
+	return Unmount(mount, flags)
+}
+
+// Unmount the mount at the provided path
+func legacyUnmount(mount string, flags int) error {
 	var (
 		home, layerID = filepath.Split(mount)
 		di            = hcsshim.DriverInfo{
@@ -97,9 +134,4 @@ func Unmount(mount string, flags int) error {
 	}
 
 	return nil
-}
-
-// UnmountAll unmounts from the provided path
-func UnmountAll(mount string, flags int) error {
-	return Unmount(mount, flags)
 }

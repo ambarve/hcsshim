@@ -146,4 +146,14 @@ type UtilityVM struct {
 	// noInheritHostTimezone specifies whether to not inherit the hosts timezone for the UVM. UTC will be set as the default instead.
 	// This only applies for WCOW.
 	noInheritHostTimezone bool
+
+	// cim layers which are mounted inside this uvm.
+	cimMounts       map[string]*cimInfo
+	cimMountMapLock sync.Mutex
+
+	// layers passed for this uvm
+	layerFolders []string
+
+	// build version of this uvm
+	buildVersion uint16
 }

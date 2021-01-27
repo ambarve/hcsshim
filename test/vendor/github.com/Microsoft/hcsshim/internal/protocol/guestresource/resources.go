@@ -38,6 +38,8 @@ const (
 	// ResourceTypeSecurityPolicy is the modify resource type for updating the security
 	// policy
 	ResourceTypeSecurityPolicy guestrequest.ResourceType = "SecurityPolicy"
+	// ResourceTypeCimMount is the modify resource type for mounting a cim inside the UVM.
+	ResourceTypeCimMount guestrequest.ResourceType = "CimMount"
 )
 
 // This class is used by a modify request to add or remove a combined layers

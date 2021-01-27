@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/containerd/containerd/content"
+	"github.com/containerd/containerd/diff"
 	"github.com/containerd/containerd/errdefs"
 	"github.com/containerd/containerd/images"
 	"github.com/containerd/containerd/log"
@@ -65,11 +66,16 @@ func (c *Client) newUnpacker(ctx context.Context, rCtx *RemoteContext) (*unpacke
 			return nil, err
 		}
 	}
+	var limiter *semaphore.Weighted
+	if rCtx.MaxConcurrentDownloads > 0 {
+		limiter = semaphore.NewWeighted(int64(rCtx.MaxConcurrentDownloads))
+	}
 	return &unpacker{
 		updateCh:    make(chan ocispec.Descriptor, 128),
 		snapshotter: snapshotter,
 		config:      config,
 		c:           c,
+		limiter:     limiter,
 	}, nil
 }
 
@@ -209,6 +215,7 @@ EachLayer:
 		case <-fetchC[i-fetchOffset]:
 		}
 
+		u.config.ApplyOpts = append(u.config.ApplyOpts, diff.WithSnapshotterName(u.snapshotter))
 		diff, err := a.Apply(ctx, desc, mounts, u.config.ApplyOpts...)
 		if err != nil {
 			abort()
