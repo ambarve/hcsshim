@@ -9,12 +9,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/ospath"
 	"github.com/Microsoft/hcsshim/internal/uvm"
 	uvmpkg "github.com/Microsoft/hcsshim/internal/uvm"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -63,63 +65,171 @@ func (layers *ImageLayers) Release(ctx context.Context, all bool) error {
 	return nil
 }
 
-// MountContainerLayers is a helper for clients to hide all the complexity of layer mounting
-// Layer folder are in order: base, [rolayer1..rolayern,] scratch
-//
-// v1/v2: Argon WCOW: Returns the mount path on the host as a volume GUID.
-// v1:    Xenon WCOW: Done internally in HCS, so no point calling doing anything here.
-// v2:    Xenon WCOW: Returns a CombinedLayersV2 structure where ContainerRootPath is a folder
-//                    inside the utility VM which is a GUID mapping of the scratch folder. Each
-//                    of the layers are the VSMB locations where the read-only layers are mounted.
-// Job container:     Returns the mount path on the host as a volume guid, with the volume mounted on
-// 					  the host at `volumeMountPath`.
-//
-// TODO dcantah: Keep better track of the layers that are added, don't simply discard the SCSI, VSMB, etc. resource types gotten inside.
-func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot, volumeMountPath string, uvm *uvmpkg.UtilityVM) (_ string, err error) {
-	log.G(ctx).WithField("layerFolders", layerFolders).Debug("hcsshim::mountContainerLayers")
+// mountArgonLayers mounts the layers on the host for running argon containers. If the layers are in the cim
+// format cim is mounted.
+func mountArgonLayers(ctx context.Context, layerFolders []string, guestRoot, volumeMountPath string) (_ string, err error) {
+	log.G(ctx).Debug("hcsshim::mountArgonLayers")
 
-	if uvm == nil {
-		if len(layerFolders) < 2 {
-			return "", errors.New("need at least two layers - base and scratch")
-		}
-		path := layerFolders[len(layerFolders)-1]
-		rest := layerFolders[:len(layerFolders)-1]
-		if err := wclayer.ActivateLayer(ctx, path); err != nil {
-			return "", err
-		}
-		defer func() {
-			if err != nil {
-				_ = wclayer.DeactivateLayer(ctx, path)
-			}
-		}()
-
-		if err := wclayer.PrepareLayer(ctx, path, rest); err != nil {
-			return "", err
-		}
-		defer func() {
-			if err != nil {
-				_ = wclayer.UnprepareLayer(ctx, path)
-			}
-		}()
-
-		mountPath, err := wclayer.GetLayerMountPath(ctx, path)
+	if len(layerFolders) < 2 {
+		return "", errors.New("need at least two layers - base and scratch")
+	}
+	path := layerFolders[len(layerFolders)-1]
+	rest := layerFolders[:len(layerFolders)-1]
+	// If layers are in the cim format mount the cim of the topmost layer.
+	if cimlayer.IsCimLayer(rest[0]) {
+		cimPath := cimlayer.GetCimPathFromLayer(rest[0])
+		cimMountPath, err := cimfs.Mount(cimPath)
 		if err != nil {
 			return "", err
 		}
-
-		// Mount the volume to a directory on the host if requested. This is the case for job containers.
-		if volumeMountPath != "" {
-			if err := mountSandboxVolume(ctx, volumeMountPath, mountPath); err != nil {
-				return "", err
+		defer func() {
+			if err != nil {
+				if err := cimfs.Unmount(cimPath); err != nil {
+					log.G(ctx).Warnf("failed to unmount cim: %s", err)
+				}
 			}
+		}()
+		// Since the cim already combines all previous layers only prepare
+		// the topmost mounted cim.
+		rest = []string{cimMountPath}
+	}
+	if err := wclayer.ActivateLayer(ctx, path); err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			wclayer.DeactivateLayer(ctx, path)
 		}
+	}()
 
-		return mountPath, nil
+	if err := wclayer.PrepareLayer(ctx, path, rest); err != nil {
+		return "", err
+	}
+	defer func() {
+		if err != nil {
+			wclayer.UnprepareLayer(ctx, path)
+		}
+	}()
+
+	mountPath, err := wclayer.GetLayerMountPath(ctx, path)
+	if err != nil {
+		return "", err
 	}
 
-	// V2 UVM
-	log.G(ctx).WithField("os", uvm.OS()).Debug("hcsshim::mountContainerLayers V2 UVM")
+	// Mount the volume to a directory on the host if requested. This is the case for job containers.
+	if volumeMountPath != "" {
+		if err := mountSandboxVolume(ctx, volumeMountPath, mountPath); err != nil {
+			return "", err
+		}
+	}
 
+	return mountPath, nil
+}
+
+// mountXenonCimLayers mounts the given cim layers on the given uvm.  For cim layers there
+// are two cases:
+// 1. If the UVM image supports mounting the cim directly inside the uvm then share the
+// directory on the host which has the cim over VSMB and then mount the cim inside the
+// uvm. OR
+// 2. If the UVM image is running an older windows version and doesn't support mounting
+// the cim then mount the cim on the host and expose that mount to the uvm over VSMB.
+func mountXenonCimLayers(ctx context.Context, layerFolders []string, uvm *uvm.UtilityVM) (_ string, err error) {
+	if !cimlayer.IsCimLayer(layerFolders[0]) {
+		return "", fmt.Errorf("mount cim layer requested for non-cim layer: %s", layerFolders[0])
+	}
+	// We only need to mount the topmost cim
+	cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
+	options := uvm.DefaultVSMBOptions(true)
+	if uvm.MountCimSupported() {
+		// Mounting cim inside uvm needs direct map.
+		options.NoDirectmap = false
+		// Always add the parent directory of the cim as a vsmb mount because
+		// there are region files in that directory that also should be shared in
+		// the uvm.
+		hostCimDir := filepath.Dir(cimPath)
+		// Add the VSMB share
+		if _, err := uvm.AddVSMB(ctx, hostCimDir, options); err != nil {
+			return "", fmt.Errorf("failed while sharing cim file inside uvm: %s", err)
+		}
+		defer func() {
+			if err != nil {
+				uvm.RemoveVSMB(ctx, hostCimDir, true)
+			}
+		}()
+		// get path for that share
+		uvmCimDir, err := uvm.GetVSMBUvmPath(ctx, hostCimDir, true)
+		if err != nil {
+			return "", fmt.Errorf("failed to get vsmb uvm path: %s", err)
+		}
+		mountCimPath, err := uvm.MountInUVM(ctx, filepath.Join(uvmCimDir, filepath.Base(cimPath)))
+		if err != nil {
+			return "", err
+		}
+		return mountCimPath, nil
+	} else {
+		cimHostMountPath, err := cimfs.Mount(cimPath)
+		if err != nil {
+			return "", err
+		}
+		defer func() {
+			if err != nil {
+				cimfs.Unmount(cimPath)
+			}
+		}()
+		if _, err := uvm.AddVSMB(ctx, cimHostMountPath, options); err != nil {
+			return "", fmt.Errorf("failed while sharing mounted cim inside uvm: %s", err)
+		}
+		// get path for that share
+		cimVsmbPath, err := uvm.GetVSMBUvmPath(ctx, cimHostMountPath, true)
+		if err != nil {
+			return "", fmt.Errorf("failed to get vsmb uvm path: %s", err)
+		}
+		return cimVsmbPath, nil
+	}
+}
+
+// unmountXenonCimLayers unmounts the given cim layers from the given uvm.  For cim layers
+// there are two cases:
+// 1. If the UVM image supports mounting the cim directly inside the uvm then we must have
+// exposed the cim folder over VSMB and mouted the cim inside the uvm. So unmount the cim
+// and remove that VSMB share.
+// 2. If the UVM image is running an older windows version and doesn't support mounting
+// the cim, then we must have mounted the cim on the host and exposed that mount to the
+// uvm over VSMB. So remove the VSMB mount first and then unmount the cim on the host.
+func unmountXenonCimLayers(ctx context.Context, layerFolders []string, uvm *uvm.UtilityVM) (err error) {
+	if !cimlayer.IsCimLayer(layerFolders[0]) {
+		return fmt.Errorf("unmount cim layer requested for non-cim layer: %s", layerFolders[0])
+	}
+	cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
+	if uvm.MountCimSupported() {
+		hostCimDir := filepath.Dir(cimPath)
+		uvmCimDir, err := uvm.GetVSMBUvmPath(ctx, hostCimDir, true)
+		if err != nil {
+			return fmt.Errorf("failed to get vsmb uvm path while mounting cim: %s", err)
+		}
+		if err = uvm.UnmountFromUVM(ctx, filepath.Join(uvmCimDir, filepath.Base(cimPath))); err != nil {
+			return errors.Wrap(err, "failed to remove cim layer from the uvm")
+		}
+		return uvm.RemoveVSMB(ctx, hostCimDir, true)
+
+	} else {
+		cimHostMountPath, err := cimfs.GetCimMountPath(cimPath)
+		if err != nil {
+			return fmt.Errorf("unable to get mounted cim path: %s", err)
+		}
+		if err = uvm.RemoveVSMB(ctx, cimHostMountPath, true); err != nil {
+			// Even if remove VSMB fails we still want to go ahead and call unmount on the cim.
+			// So we just log the error here.
+			log.G(ctx).Warnf("failed to remove VSMB share: %s", err)
+		}
+		return cimfs.Unmount(cimPath)
+	}
+}
+
+// mountXenonLayers mounts the container layers inside the uvm. For legacy layers the
+// layer folders are simply added as VSMB shares on the host.
+func mountXenonLayers(ctx context.Context, layerFolders []string, guestRoot string, uvm *uvmpkg.UtilityVM) (_ string, err error) {
+	log.G(ctx).Debug("hcsshim::mountXenonLayers")
 	var (
 		layersAdded       []string
 		lcowUvmLayerPaths []string
@@ -127,10 +237,8 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot,
 	defer func() {
 		if err != nil {
 			if uvm.OS() == "windows" {
-				for _, l := range layersAdded {
-					if err := uvm.RemoveVSMB(ctx, l, true); err != nil {
-						log.G(ctx).WithError(err).Warn("failed to remove wcow layer on cleanup")
-					}
+				if err := unmountXenonWcowLayers(ctx, layerFolders, uvm); err != nil {
+					log.G(ctx).WithError(err).Warn("failed cleanup xenon layers")
 				}
 			} else {
 				for _, l := range layersAdded {
@@ -142,19 +250,27 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot,
 		}
 	}()
 
-	for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-		log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
-		if uvm.OS() == "windows" {
-			options := uvm.DefaultVSMBOptions(true)
-			options.TakeBackupPrivilege = true
-			if uvm.IsTemplate {
-				uvm.SetSaveableVSMBOptions(options, options.ReadOnly)
+	if uvm.OS() == "windows" {
+		if cimlayer.IsCimLayer(layerFolders[0]) {
+			_, err := mountXenonCimLayers(ctx, layerFolders, uvm)
+			if err != nil {
+				return "", fmt.Errorf("failed to mount cim layers : %s", err)
 			}
-			if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
-				return "", fmt.Errorf("failed to add VSMB layer: %s", err)
-			}
-			layersAdded = append(layersAdded, layerPath)
+			layersAdded = append(layersAdded, layerFolders[0])
 		} else {
+			for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+				log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
+				options := uvm.DefaultVSMBOptions(true)
+				options.TakeBackupPrivilege = true
+				if _, err := uvm.AddVSMB(ctx, layerPath, options); err != nil {
+					return "", fmt.Errorf("failed to add VSMB layer: %s", err)
+				}
+				layersAdded = append(layersAdded, layerPath)
+
+			}
+		}
+	} else {
+		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
 			var (
 				layerPath = filepath.Join(layerPath, "layer.vhd")
 				uvmPath   string
@@ -201,12 +317,19 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot,
 
 	var rootfs string
 	if uvm.OS() == "windows" {
-		// 	Load the filter at the C:\s<ID> location calculated above. We pass into this request each of the
-		// 	read-only layer folders.
+		// Load the filter at the C:\s<ID> location calculated above. We pass into this
+		// request each of the read-only layer folders.
 		var layers []hcsschema.Layer
-		layers, err = GetHCSLayers(ctx, uvm, layersAdded)
-		if err != nil {
-			return "", err
+		if cimlayer.IsCimLayer(layerFolders[0]) {
+			layers, err = GetCimHCSLayer(ctx, uvm, cimlayer.GetCimPathFromLayer(layerFolders[0]))
+			if err != nil {
+				return "", fmt.Errorf("failed to get hcs layer: %s", err)
+			}
+		} else {
+			layers, err = GetHCSLayers(ctx, uvm, layersAdded)
+			if err != nil {
+				return "", err
+			}
 		}
 		err = uvm.CombineLayersWCOW(ctx, layers, containerScratchPathInUVM)
 		rootfs = containerScratchPathInUVM
@@ -215,10 +338,32 @@ func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot,
 		err = uvm.CombineLayersLCOW(ctx, lcowUvmLayerPaths, containerScratchPathInUVM, rootfs)
 	}
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to combine layers: %s", err)
 	}
 	log.G(ctx).Debug("hcsshim::mountContainerLayers Succeeded")
 	return rootfs, nil
+
+}
+
+// MountContainerLayers is a helper for clients to hide all the complexity of layer mounting
+// Layer folder are in order: base, [rolayer1..rolayern,] scratch
+//
+// v1/v2: Argon WCOW: Returns the mount path on the host as a volume GUID.
+// v1:    Xenon WCOW: Done internally in HCS, so no point calling doing anything here.
+// v2:    Xenon WCOW: Returns a CombinedLayersV2 structure where ContainerRootPath is a folder
+//                    inside the utility VM which is a GUID mapping of the scratch folder. Each
+//                    of the layers are the VSMB locations where the read-only layers are mounted.
+//
+// Job container:     Returns the mount path on the host as a volume guid, with the volume mounted on
+// 	              the host at `volumeMountPath`.
+// TODO dcantah: Keep better track of the layers that are added, don't simply discard the SCSI, VSMB, etc. resource types gotten inside.
+func MountContainerLayers(ctx context.Context, layerFolders []string, guestRoot, volumeMountPath string, uvm *uvmpkg.UtilityVM) (_ string, err error) {
+	log.G(ctx).WithField("layerFolders", layerFolders).Debug("hcsshim::mountContainerLayers")
+	if uvm == nil {
+		return mountArgonLayers(ctx, layerFolders, guestRoot, volumeMountPath)
+	} else {
+		return mountXenonLayers(ctx, layerFolders, guestRoot, uvm)
+	}
 }
 
 func addLCOWLayer(ctx context.Context, uvm *uvmpkg.UtilityVM, layerPath string) (uvmPath string, err error) {
@@ -289,6 +434,25 @@ const (
 	UnmountOperationAll                    = UnmountOperationSCSI | UnmountOperationVSMB | UnmountOperationVPMEM
 )
 
+// unmountXenonWcowLayers unmounts the container layers inside the uvm. For legacy layers
+// the layer folders are just vsmb shares and so we just need to remove that vsmb
+// share.
+func unmountXenonWcowLayers(ctx context.Context, layerFolders []string, uvm *uvmpkg.UtilityVM) error {
+	if cimlayer.IsCimLayer(layerFolders[0]) {
+		if e := unmountXenonCimLayers(ctx, layerFolders, uvm); e != nil {
+			return errors.Wrap(e, "failed to remove cim layers")
+		}
+	} else {
+		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
+			if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
+				log.G(ctx).WithError(e).Warn("remove VSMB failed")
+				return errors.Wrap(e, "failed to remove layer from the uvm")
+			}
+		}
+	}
+	return nil
+}
+
 // UnmountContainerLayers is a helper for clients to hide all the complexity of layer unmounting
 func UnmountContainerLayers(ctx context.Context, layerFolders []string, containerRootPath, volumeMountPath string, uvm *uvmpkg.UtilityVM, op UnmountOperation) error {
 	log.G(ctx).WithField("layerFolders", layerFolders).Debug("hcsshim::unmountContainerLayers")
@@ -312,7 +476,17 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 		if err := wclayer.UnprepareLayer(ctx, path); err != nil {
 			return err
 		}
-		return wclayer.DeactivateLayer(ctx, path)
+		if err := wclayer.DeactivateLayer(ctx, path); err != nil {
+			return err
+		}
+
+		if cimlayer.IsCimLayer(layerFolders[0]) {
+			cimPath := cimlayer.GetCimPathFromLayer(layerFolders[0])
+			if err := cimfs.Unmount(cimPath); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	// V2 Xenon
@@ -351,14 +525,11 @@ func UnmountContainerLayers(ctx context.Context, layerFolders []string, containe
 	// only removed once the count drops to zero. This allows multiple containers
 	// to share layers.
 	if uvm.OS() == "windows" && (op&UnmountOperationVSMB) == UnmountOperationVSMB {
-		for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-			if e := uvm.RemoveVSMB(ctx, layerPath, true); e != nil {
-				log.G(ctx).WithError(e).Warn("remove VSMB failed")
-				if retError == nil {
-					retError = e
-				} else {
-					retError = errors.Wrapf(retError, e.Error())
-				}
+		if e := unmountXenonWcowLayers(ctx, layerFolders, uvm); e != nil {
+			if retError == nil {
+				retError = e
+			} else {
+				retError = errors.Wrapf(retError, e.Error())
 			}
 		}
 	}
@@ -396,6 +567,41 @@ func GetHCSLayers(ctx context.Context, vm *uvm.UtilityVM, paths []string) (layer
 		}
 		layers = append(layers, hcsschema.Layer{Id: layerID.String(), Path: uvmPath})
 	}
+	return layers, nil
+}
+
+// GetCimHCSLayer finds the uvm mount path of the given cim and returns a hcs schema v2
+// layer of it.  The cim must have already been mounted inside the uvm.
+func GetCimHCSLayer(ctx context.Context, vm *uvm.UtilityVM, cimPath string) (layers []hcsschema.Layer, err error) {
+	var uvmPath string
+	if vm.MountCimSupported() {
+		hostCimDir := filepath.Dir(cimPath)
+		uvmCimDir, err := vm.GetVSMBUvmPath(ctx, hostCimDir, true)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get vsmb uvm path: %s", err)
+		}
+		uvmPath, err = vm.GetCimUvmMountPathNt(filepath.Join(uvmCimDir, filepath.Base(cimPath)))
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		cimHostMountPath, err := cimfs.GetCimMountPath(cimPath)
+		if err != nil {
+			return nil, err
+		}
+		uvmPath, err = vm.GetVSMBUvmPath(ctx, cimHostMountPath, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	// Note: the LayerID must still be calculated with the cim path. The layer id
+	// calculations fail if we pass it the volume path and that results in very
+	// cryptic errors when starting containers.
+	layerID, err := wclayer.LayerID(ctx, cimPath)
+	if err != nil {
+		return nil, err
+	}
+	layers = append(layers, hcsschema.Layer{Id: layerID.String(), Path: uvmPath})
 	return layers, nil
 }
 

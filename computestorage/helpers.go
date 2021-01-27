@@ -198,6 +198,9 @@ func SetupUtilityVMBaseLayer(ctx context.Context, uvmPath, baseVhdPath, diffVhdP
 		return errors.Wrap(err, "failed to update BCD")
 	}
 
+	// TODO(ambarve): remove this
+	// setDebugOn(bcdPath)
+
 	// Note: diff vhd creation and granting of vm group access must be done AFTER
 	// getting the partition info of the base VHD. Otherwise it causes the vhd parent
 	// chain to get corrupted.

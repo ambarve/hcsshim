@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/cow"
 	"github.com/Microsoft/hcsshim/internal/hcs"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
@@ -15,6 +16,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/logfields"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
@@ -160,6 +162,9 @@ func verifyOptions(ctx context.Context, options interface{}) error {
 		if opts.IsTemplate && opts.FullyPhysicallyBacked {
 			return errors.New("Template can not be created from a full physically backed UVM")
 		}
+		if (opts.IsTemplate || opts.IsClone) && cimlayer.IsCimLayer(opts.LayerFolders[0]) {
+			return errors.New("cloning is not supported with cimfs")
+		}
 	}
 	return nil
 }
@@ -253,8 +258,18 @@ func (uvm *UtilityVM) Close() (err error) {
 		uvm.outputListener = nil
 	}
 	if uvm.hcsSystem != nil {
-		return uvm.hcsSystem.Close()
+		if err := uvm.hcsSystem.Close(); err != nil {
+			log.G(ctx).Warnf("failure during hcs system close: %s", err)
+		}
 	}
+
+	// Remove the cim layer once hcsSystem is closed
+	if uvm.OS() == "windows" && cimlayer.IsCimLayer(uvm.layerFolders[1]) {
+		if err := cimfs.Unmount(cimlayer.GetCimPathFromLayer(uvm.layerFolders[0])); err != nil {
+			log.G(ctx).Warnf("failure when unmounting cim uvm image: %s", err)
+		}
+	}
+
 	return nil
 }
 
