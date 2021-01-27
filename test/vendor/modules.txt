@@ -1,5 +1,5 @@
-# github.com/Microsoft/go-winio v0.4.17
-## explicit; go 1.12
+# github.com/Microsoft/go-winio v0.5.2
+## explicit; go 1.13
 github.com/Microsoft/go-winio
 github.com/Microsoft/go-winio/backuptar
 github.com/Microsoft/go-winio/pkg/guid
@@ -16,6 +16,8 @@ github.com/Microsoft/hcsshim/ext4/internal/compactext4
 github.com/Microsoft/hcsshim/ext4/internal/format
 github.com/Microsoft/hcsshim/ext4/tar2ext4
 github.com/Microsoft/hcsshim/hcn
+github.com/Microsoft/hcsshim/internal/cimfs
+github.com/Microsoft/hcsshim/internal/cimfs/format
 github.com/Microsoft/hcsshim/internal/clone
 github.com/Microsoft/hcsshim/internal/cmd
 github.com/Microsoft/hcsshim/internal/cni
@@ -64,8 +66,10 @@ github.com/Microsoft/hcsshim/internal/timeout
 github.com/Microsoft/hcsshim/internal/tools/securitypolicy/helpers
 github.com/Microsoft/hcsshim/internal/uvm
 github.com/Microsoft/hcsshim/internal/uvmfolder
+github.com/Microsoft/hcsshim/internal/vhdx
 github.com/Microsoft/hcsshim/internal/vmcompute
 github.com/Microsoft/hcsshim/internal/wclayer
+github.com/Microsoft/hcsshim/internal/wclayer/cim
 github.com/Microsoft/hcsshim/internal/wcow
 github.com/Microsoft/hcsshim/internal/winapi
 github.com/Microsoft/hcsshim/osversion
@@ -177,9 +181,11 @@ github.com/docker/cli/cli/config/types
 # github.com/docker/distribution v2.7.1+incompatible
 ## explicit
 github.com/docker/distribution/registry/client/auth/challenge
-# github.com/docker/docker v1.4.2-0.20190924003213-a8608b5b67c7
+# github.com/docker/docker v20.10.6+incompatible
 ## explicit
 github.com/docker/docker/pkg/homedir
+github.com/docker/docker/pkg/ioutils
+github.com/docker/docker/pkg/longpath
 # github.com/docker/docker-credential-helpers v0.6.3
 ## explicit
 github.com/docker/docker-credential-helpers/client

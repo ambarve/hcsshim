@@ -3,7 +3,7 @@ module github.com/Microsoft/hcsshim/test
 go 1.17
 
 require (
-	github.com/Microsoft/go-winio v0.4.17
+	github.com/Microsoft/go-winio v0.5.2
 	github.com/Microsoft/hcsshim v0.8.23
 	github.com/containerd/containerd v1.5.10
 	github.com/containerd/go-runc v1.0.0
@@ -32,7 +32,7 @@ require (
 	github.com/containerd/fifo v1.0.0 // indirect
 	github.com/docker/cli v0.0.0-20191017083524-a8ff7f821017 // indirect
 	github.com/docker/distribution v2.7.1+incompatible // indirect
-	github.com/docker/docker v1.4.2-0.20190924003213-a8608b5b67c7 // indirect
+	github.com/docker/docker v20.10.6+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.6.3 // indirect
 	github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c // indirect
 	github.com/gogo/googleapis v1.4.0 // indirect
