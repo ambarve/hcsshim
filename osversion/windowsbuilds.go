@@ -38,5 +38,5 @@ const (
 
 	// minimum build required for cimfs
 	//TODO(ambarve): replace this with correct value before merging
-	V21H1 = 21280
+	V21H1 = 20348
 )

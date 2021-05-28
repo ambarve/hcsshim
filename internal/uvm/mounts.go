@@ -44,6 +44,8 @@ func (uvm *UtilityVM) MountInUVM(ctx context.Context, uvmCimPath string) (_ stri
 	if !uvm.MountCimSupported() {
 		return "", fmt.Errorf("uvm %s doesn't support mounting cim", uvm.ID())
 	}
+	uvm.cimMountMapLock.Lock()
+	defer uvm.cimMountMapLock.Unlock()
 	if _, ok := uvm.cimMounts[uvmCimPath]; !ok {
 		layerGUID, err := guid.NewV4()
 		if err != nil {
@@ -72,7 +74,11 @@ func (uvm *UtilityVM) MountInUVM(ctx context.Context, uvmCimPath string) (_ stri
 
 // Returns the path ("\\?\Volume{GUID}\" format) at which the cim at `uvmCimPath` is
 // mounted inside the uvm.  Throws an error if the given cim is not mounted.
+// TODO(ambarve): This can be improved to map the cim path to the mount path inside the
+// uvm. No need to force the user to provide the uvmCimPath.
 func (uvm *UtilityVM) GetCimUvmMountPathNt(uvmCimPath string) (string, error) {
+	uvm.cimMountMapLock.Lock()
+	defer uvm.cimMountMapLock.Unlock()
 	ci, ok := uvm.cimMounts[uvmCimPath]
 	if !ok {
 		return "", fmt.Errorf("cim %s is not mounted", uvmCimPath)
@@ -82,6 +88,8 @@ func (uvm *UtilityVM) GetCimUvmMountPathNt(uvmCimPath string) (string, error) {
 
 // UnmountFromUVM unmounts the cim at path `uvmCimPath` from inside the uvm.
 func (uvm *UtilityVM) UnmountFromUVM(ctx context.Context, uvmCimPath string) error {
+	uvm.cimMountMapLock.Lock()
+	defer uvm.cimMountMapLock.Unlock()
 	ci, ok := uvm.cimMounts[uvmCimPath]
 	if !ok {
 		return fmt.Errorf("cim not mounted inside the uvm")
