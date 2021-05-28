@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/hcs/schema1"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	layerspkg "github.com/Microsoft/hcsshim/internal/layers"
@@ -343,8 +342,8 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		var layers []hcsschema.Layer
 		var err error
 		if coi.HostingSystem.OS() == "windows" {
-			if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[0]) {
-				layers, err = layerspkg.GetCimHCSLayer(ctx, coi.HostingSystem, cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0]))
+			if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[1]) {
+				layers, err = layerspkg.GetCimHCSLayer(ctx, coi.HostingSystem, cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[1]), coi.Spec.Windows.LayerFolders[0])
 			} else {
 				layers, err = layerspkg.GetHCSLayers(ctx, coi.HostingSystem, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1])
 			}
@@ -356,12 +355,9 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 	}
 
 	if coi.isV2Argon() || coi.isV1Argon() { // Argon v1 or v2
-		if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[0]) {
-			topLayerCim := cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[0])
-			mountPath, err := cimfs.GetCimMountPath(topLayerCim)
-			if err != nil {
-				return nil, nil, err
-			}
+		if cimlayer.IsCimLayer(coi.Spec.Windows.LayerFolders[1]) {
+			topLayerCim := cimlayer.GetCimPathFromLayer(coi.Spec.Windows.LayerFolders[1])
+			mountPath := coi.Spec.Windows.LayerFolders[0]
 			layerID, err := wclayer.LayerID(ctx, topLayerCim)
 			if err != nil {
 				return nil, nil, err

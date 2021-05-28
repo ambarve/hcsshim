@@ -137,7 +137,8 @@ type UtilityVM struct {
 	cimPath string
 
 	// cim layers which are mounted inside this uvm.
-	cimMounts map[string]*cimInfo
+	cimMounts       map[string]*cimInfo
+	cimMountMapLock sync.Mutex
 
 	// layers passed for this uvm
 	layerFolders []string

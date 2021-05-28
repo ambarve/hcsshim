@@ -184,6 +184,7 @@ func (uvm *UtilityVM) registerVSMBShare(hostPath string, options *hcsschema.Virt
 	m[shareKey] = &VSMBShare{
 		vm:           uvm,
 		name:         name,
+		HostPath:     hostPath,
 		options:      *options,
 		refCount:     1,
 		allowedFiles: allowedFiles,
