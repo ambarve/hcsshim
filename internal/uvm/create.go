@@ -272,8 +272,10 @@ func (uvm *UtilityVM) Close() (err error) {
 	}
 
 	// Remove the cim layer once hcsSystem is closed
-	if err := cimfs.Unmount(cimlayer.GetCimPathFromLayer(uvm.layerFolders[0])); err != nil {
-		log.G(ctx).Warnf("failure when unmounting cim uvm image: %s", err)
+	if uvm.OS() == "windows" && cimlayer.IsCimLayer(uvm.layerFolders[1]) {
+		if err := cimfs.Unmount(cimlayer.GetCimPathFromLayer(uvm.layerFolders[0])); err != nil {
+			log.G(ctx).Warnf("failure when unmounting cim uvm image: %s", err)
+		}
 	}
 
 	return nil
