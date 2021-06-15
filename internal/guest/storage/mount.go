@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/pkg/errors"
 	"go.opencensus.io/trace"
@@ -132,6 +133,11 @@ func UnmountPath(ctx context.Context, target string, removeTarget bool) (err err
 		// If `Unmount` returns `EINVAL` it's not mounted. Just delete the
 		// folder.
 		if err != unix.EINVAL {
+			if err == unix.EBUSY {
+				// add more logs that can help with understanding what is
+				// keeping the target busy.
+				logUnmountErrBusyDebugLogs(ctx, target)
+			}
 			return errors.Wrapf(err, "failed to unmount path '%s'", target)
 		}
 	}
