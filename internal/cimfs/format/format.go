@@ -93,8 +93,8 @@ type RegionHeader struct {
 
 const ObjectIDFileName = "objectid"
 
-// ObjectIdHeader is the header for the object ID file.
-type ObjectIdHeader struct {
+// ObjectIDHeader is the header for the object ID file.
+type ObjectIDHeader struct {
 	Common      CommonHeader
 	Index       uint16
 	Type        RegionType
@@ -110,9 +110,9 @@ type ObjectID struct {
 	Digest [24]uint8
 }
 
-// ObjectIdEntry is an entry in the object ID file. It contains the object ID
+// ObjectIDEntry is an entry in the object ID file. It contains the object ID
 // and the byte offset into the corresponding region file.
-type ObjectIdEntry struct {
+type ObjectIDEntry struct {
 	ObjectID ObjectID
 	Offset   uint64
 }
@@ -234,7 +234,7 @@ type File struct {
 	EaOffset          RegionOffset // gsl::byte[]
 	ReparseOffset     RegionOffset // uint16 counted gsl::byte[]
 	StreamTableOffset RegionOffset // LinkTable<Stream>
-	ParentFileId      FileID
+	ParentFileID      FileID
 	BaseRegionIndex   uint16
 	Reserved          uint16
 }

@@ -68,13 +68,13 @@ func Unmount(volumePath string) error {
 	trimmedStr := strings.TrimPrefix(volumePath, "\\\\?\\Volume{")
 	trimmedStr = strings.TrimSuffix(trimmedStr, "}\\")
 
-	volGuid, err := guid.FromString(trimmedStr)
+	volGUID, err := guid.FromString(trimmedStr)
 	if err != nil {
 		return errors.Wrapf(err, "guid parsing failed for %s", trimmedStr)
 	}
 
-	if err := winapi.CimDismountImage(&volGuid); err != nil {
-		return &MountError{VolumeGUID: volGuid, Op: "Unmount", Err: err}
+	if err := winapi.CimDismountImage(&volGUID); err != nil {
+		return &MountError{VolumeGUID: volGUID, Op: "Unmount", Err: err}
 	}
 
 	return nil
