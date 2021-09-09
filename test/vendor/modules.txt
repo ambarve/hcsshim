@@ -17,6 +17,8 @@ github.com/Microsoft/hcsshim/ext4/internal/compactext4
 github.com/Microsoft/hcsshim/ext4/internal/format
 github.com/Microsoft/hcsshim/ext4/tar2ext4
 github.com/Microsoft/hcsshim/hcn
+github.com/Microsoft/hcsshim/internal/cimfs
+github.com/Microsoft/hcsshim/internal/cimfs/format
 github.com/Microsoft/hcsshim/internal/clone
 github.com/Microsoft/hcsshim/internal/cmd
 github.com/Microsoft/hcsshim/internal/cni
@@ -60,8 +62,10 @@ github.com/Microsoft/hcsshim/internal/shimdiag
 github.com/Microsoft/hcsshim/internal/timeout
 github.com/Microsoft/hcsshim/internal/uvm
 github.com/Microsoft/hcsshim/internal/uvmfolder
+github.com/Microsoft/hcsshim/internal/vhdx
 github.com/Microsoft/hcsshim/internal/vmcompute
 github.com/Microsoft/hcsshim/internal/wclayer
+github.com/Microsoft/hcsshim/internal/wclayer/cim
 github.com/Microsoft/hcsshim/internal/wcow
 github.com/Microsoft/hcsshim/internal/winapi
 github.com/Microsoft/hcsshim/osversion
@@ -157,6 +161,9 @@ github.com/containerd/ttrpc
 # github.com/containerd/typeurl v1.0.2
 ## explicit
 github.com/containerd/typeurl
+# github.com/docker/docker v20.10.6+incompatible
+github.com/docker/docker/pkg/ioutils
+github.com/docker/docker/pkg/longpath
 # github.com/docker/go-events v0.0.0-20190806004212-e31b211e4f1c
 github.com/docker/go-events
 # github.com/gogo/googleapis v1.4.0
