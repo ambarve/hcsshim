@@ -108,3 +108,13 @@ issues:
       linters:
         - stylecheck
       Text: "ST1003:"
+
+    - path: computestorage\\storage.go
+      linters:
+        - stylecheck
+      Text: "ST1003:"
+
+    - path: internal\\vhdx\\info
+      linters:
+        - stylecheck
+      Text: "ST1003:"
