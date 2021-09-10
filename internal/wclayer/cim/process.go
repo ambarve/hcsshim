@@ -13,6 +13,7 @@ import (
 	"github.com/Microsoft/hcsshim/computestorage"
 	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/docker/docker/pkg/ioutils"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
@@ -161,7 +162,7 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 	}
 
 	if uvmBuildNumber >= cimfs.MinimumCimFSBuild {
-		layerRelativeSystemHivePath = filepath.Join(utilityVMPath, regFilesPath, "SYSTEM")
+		layerRelativeSystemHivePath = filepath.Join(wclayer.UtilityVMPath, wclayer.RegFilesPath, "SYSTEM")
 		tmpSystemHivePath = filepath.Join(tmpDir, "SYSTEM")
 		if err := cimfs.FetchFileFromCim(GetCimPathFromLayer(layerPath), layerRelativeSystemHivePath, tmpSystemHivePath); err != nil {
 			return err

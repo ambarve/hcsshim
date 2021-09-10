@@ -133,9 +133,6 @@ type UtilityVM struct {
 	// for the Utility VM.
 	networkSetup NetworkSetup
 
-	// cim layer on which this uvm will boot
-	cimPath string
-
 	// cim layers which are mounted inside this uvm.
 	cimMounts       map[string]*cimInfo
 	cimMountMapLock sync.Mutex
