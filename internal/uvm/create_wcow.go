@@ -199,7 +199,10 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			},
 		},
 	}
-	uvm.registerVSMBShare(filepath.Join(uvmFolder, `UtilityVM\Files`), vsmbOpts, "os")
+	err = uvm.registerVSMBShare(filepath.Join(uvmFolder, `UtilityVM\Files`), vsmbOpts, "os")
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to register VSMB os share at host path: %s", filepath.Join(uvmFolder, `UtilityVM\Files`))
+	}
 
 	var registryChanges hcsschema.RegistryChanges
 	// We're getting asked to setup local dump collection for WCOW. We need to:
@@ -260,7 +263,10 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			Options: vsmbOpts,
 		}
 		virtualSMB.Shares = append(virtualSMB.Shares, cimVsmbShare)
-		uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]), vsmbOpts, cimVsmbShareName)
+		err = uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]), vsmbOpts, cimVsmbShareName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to register VSMB share %s for host path %s", cimVsmbShareName, cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]))
+		}
 
 		// enable boot from cim
 		addBootFromCimRegistryChanges(opts.LayerFolders[1:], &registryChanges)
