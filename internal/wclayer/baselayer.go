@@ -15,6 +15,8 @@ import (
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/safefile"
 	"github.com/Microsoft/hcsshim/internal/winapi"
+	"github.com/containerd/containerd/log"
+	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
 
@@ -159,12 +161,28 @@ func GetOsBuildNumberFromRegistry(regHivePath string) (_ string, err error) {
 	if err = winapi.OrOpenHive(regHivePath, &storeHandle); err != nil {
 		return "", fmt.Errorf("failed to open registry store at %s: %s", regHivePath, err)
 	}
-	defer winapi.OrCloseHive(storeHandle)
+	defer func() {
+		if closeErr := winapi.OrCloseHive(storeHandle); closeErr != nil {
+			log.L.WithFields(logrus.Fields{
+				"error": closeErr,
+				"hive":  regHivePath,
+			}).Warnf("failed to close hive")
+		}
+	}()
 
 	if err = winapi.OrOpenKey(storeHandle, keyPath, &keyHandle); err != nil {
 		return "", fmt.Errorf("failed to open key at %s: %s", keyPath, err)
 	}
-	defer winapi.OrCloseKey(keyHandle)
+	defer func() {
+		if closeErr := winapi.OrCloseKey(keyHandle); closeErr != nil {
+			log.L.WithFields(logrus.Fields{
+				"error": closeErr,
+				"hive":  regHivePath,
+				"key":   keyPath,
+				"value": valueName,
+			}).Warnf("failed to close hive key")
+		}
+	}()
 
 	if err = winapi.OrGetValue(keyHandle, "", valueName, &dataType, &dataBuf[0], &dataLen); err != nil {
 		return "", fmt.Errorf("failed to get value of %s: %s", valueName, err)

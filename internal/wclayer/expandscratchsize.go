@@ -9,8 +9,10 @@ import (
 
 	"github.com/Microsoft/go-winio/vhd"
 	"github.com/Microsoft/hcsshim/internal/hcserror"
+	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/osversion"
+	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
 )
 
@@ -47,7 +49,14 @@ func expandSandboxVolume(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	defer syscall.CloseHandle(vhdHandle)
+	defer func() {
+		if closeErr := syscall.CloseHandle(vhdHandle); closeErr != nil {
+			log.G(ctx).WithFields(logrus.Fields{
+				"vhd path": vhdPath,
+				"error":    closeErr,
+			}).Warn("failed to close vhd handle")
+		}
+	}()
 
 	err = vhd.AttachVirtualDisk(vhdHandle, vhd.AttachVirtualDiskFlagNone, &vhd.AttachVirtualDiskParameters{Version: 2})
 	if err != nil {
