@@ -197,7 +197,13 @@ func mountXenonCimLayers(ctx context.Context, layerFolders []string, vm *uvm.Uti
 		}
 		defer func() {
 			if err != nil {
-				vm.RemoveVSMB(ctx, hostCimDir, true)
+				remErr := vm.RemoveVSMB(ctx, hostCimDir, true)
+				if remErr != nil {
+					log.G(ctx).WithFields(logrus.Fields{
+						"host path": hostCimDir,
+						"error":     remErr,
+					}).Warn("failed to remove VSMB share")
+				}
 			}
 		}()
 		// get path for that share

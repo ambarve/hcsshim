@@ -140,9 +140,6 @@ type UtilityVM struct {
 	// This only applies for WCOW.
 	noInheritHostTimezone bool
 
-	// cim layer on which this uvm will boot
-	cimPath string
-
 	// cim layers which are mounted inside this uvm.
 	cimMounts       map[string]*cimInfo
 	cimMountMapLock sync.Mutex
