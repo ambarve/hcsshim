@@ -35,13 +35,13 @@ const (
 	PARTITION_STYLE_RAW
 )
 
-type partitionInformationMBR struct {
-	PartitionType       uint8
-	BootIndicator       uint8
-	RecognizedPartition uint8
-	HiddenSectors       uint32
-	PartitionId         guid.GUID
-}
+// type partitionInformationMBR struct {
+// 	PartitionType       uint8
+// 	BootIndicator       uint8
+// 	RecognizedPartition uint8
+// 	HiddenSectors       uint32
+// 	PartitionId         guid.GUID
+// }
 
 type partitionInformationGPT struct {
 	PartitionType guid.GUID
@@ -70,10 +70,10 @@ type driveLayoutInformationGPT struct {
 	MaxPartitionCount    uint32
 }
 
-type driveLayoutInformationMBR struct {
-	Signature uint32
-	Checksum  uint32
-}
+// type driveLayoutInformationMBR struct {
+// 	Signature uint32
+// 	Checksum  uint32
+// }
 
 type driveLayoutInformationEx struct {
 	PartitionStyle uint32
@@ -169,14 +169,28 @@ func GetScratchVhdPartitionInfo(ctx context.Context, vhdxPath string) (_ Scratch
 	if err != nil {
 		return ScratchVhdxPartitionInfo{}, fmt.Errorf("get scratch vhd info failed: %s", err)
 	}
-	defer syscall.CloseHandle(diskHandle)
+	defer func() {
+		if closeErr := syscall.CloseHandle(diskHandle); closeErr != nil {
+			log.G(ctx).WithFields(logrus.Fields{
+				"disk path": vhdxPath,
+				"error":     closeErr,
+			}).Warn("failed to close vhd handle")
+		}
+	}()
 
 	err = vhd.AttachVirtualDisk(diskHandle, vhd.AttachVirtualDiskFlagNone, &vhd.AttachVirtualDiskParameters{Version: 2})
 	if err != nil {
 		return ScratchVhdxPartitionInfo{}, fmt.Errorf("get scratch vhd info failed: %s", err)
 	}
 
-	defer vhd.DetachVirtualDisk(diskHandle)
+	defer func() {
+		if detachErr := vhd.DetachVirtualDisk(diskHandle); detachErr != nil {
+			log.G(ctx).WithFields(logrus.Fields{
+				"disk path": vhdxPath,
+				"error":     detachErr,
+			}).Warn("failed to detach vhd")
+		}
+	}()
 
 	driveLayout, partitions, err = getDriveLayout(ctx, diskHandle)
 	if err != nil {

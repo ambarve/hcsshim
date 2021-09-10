@@ -12,7 +12,9 @@ import (
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/computestorage"
 	"github.com/Microsoft/hcsshim/internal/cimfs"
+	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/docker/docker/pkg/ioutils"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 )
 
@@ -63,7 +65,12 @@ func processBaseLayer(ctx context.Context, layerPath string, hasUtilityVM bool) 
 		}
 		defer func() {
 			// Try to unmount irrespective of errors
-			cimfs.Unmount(mountpath)
+			if uErr := cimfs.Unmount(mountpath); uErr != nil {
+				log.G(ctx).WithFields(logrus.Fields{
+					"cim path":         GetCimPathFromLayer(layerPath),
+					"mounted location": mountpath,
+				}).Warn("failed to unmount cim")
+			}
 		}()
 
 		baseVhdPath = filepath.Join(layerPath, utilityVMPath, utilityVMBaseVhd)
