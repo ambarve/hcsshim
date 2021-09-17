@@ -12,8 +12,9 @@ import (
 )
 
 var cimImportCommand = cli.Command{
-	Name:  "cim-import",
-	Usage: "imports a CIM layer from a tar file. A directory named `cim-layers` will be created next to the `<layer path>` directory (if it doesn't already exist) to hold the cim files. If there are any parent layers they must have been created alongside the layer directory of the current layer so that their cim files are stored in the same `cim-layers` directory. For example, if a layer `2` is being imported at path `/foo/bar/2` then the cim files for that layer will be written to `/foo/bar/cim-layers`. If layer `1` is the parent of layer `2` then layer `1` should have been imported at `/foo/bar/1` so that cim files of layer `1` will automatically be stored at `/foo/bar/cim-layers`.",
+	Name:        "cim-import",
+	Usage:       "imports a CIM layer from a tar file",
+	Description: "imports a CIM layer from a tar file. A directory named 'cim-layers' will be created next to the '<layer path>' directory (if it doesn't already exist) to hold the cim files. If there are any parent layers they must have been created alongside the layer directory of the current layer so that their cim files are stored in the same 'cim-layers' directory. For example, if a layer '2' is being imported at path '/foo/bar/2' then the cim files for that layer will be written to '/foo/bar/cim-layers'. If layer '1' is the parent of layer '2' then layer '1' should have been imported at '/foo/bar/1' so that cim files of layer '1' will automatically be stored at '/foo/bar/cim-layers'.",
 	Flags: []cli.Flag{
 		cli.StringSliceFlag{
 			Name:  "layer, l",
