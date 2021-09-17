@@ -114,6 +114,8 @@ func NewLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) 
 
 }
 
+type CimLayerWriter = cimlayer.CimLayerWriter
+
 func NewCimLayerWriter(info DriverInfo, layerID string, parentLayerPaths []string) (*cimlayer.CimLayerWriter, error) {
 	if IsCimfsSupported() {
 		return cimlayer.NewCimLayerWriter(context.Background(), layerPath(&info, layerID), parentLayerPaths)

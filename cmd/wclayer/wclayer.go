@@ -32,6 +32,7 @@ func main() {
 		createCommand,
 		exportCommand,
 		importCommand,
+		cimImportCommand,
 		mountCommand,
 		removeCommand,
 		unmountCommand,
