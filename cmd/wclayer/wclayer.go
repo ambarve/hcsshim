@@ -34,9 +34,11 @@ func main() {
 		importCommand,
 		cimImportCommand,
 		mountCommand,
+		cimMountCommand,
 		removeCommand,
 		removeCimCommand,
 		unmountCommand,
+		cimUnmountCommand,
 	}
 	app.Usage = usage
 
