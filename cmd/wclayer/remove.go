@@ -41,11 +41,6 @@ var removeCimCommand = cli.Command{
 			return err
 		}
 
-		err = winio.EnableProcessPrivileges([]string{winio.SeBackupPrivilege, winio.SeRestorePrivilege})
-		if err != nil {
-			return err
-		}
-
 		info := hcsshim.DriverInfo{
 			HomeDir: filepath.Dir(path),
 		}

@@ -25,14 +25,17 @@ import (
 // stored inside the cim and the setupBaseOSLayer call fails if it doesn't find those
 // files so we create empty placeholder hives inside the layer directory.
 func createPlaceHolderHives(layerPath string) error {
+	var err error
 	regDir := filepath.Join(layerPath, regFilesPath)
 	if err := os.MkdirAll(regDir, 0777); err != nil {
 		return fmt.Errorf("error while creating placeholder registry hives directory: %s", err)
 	}
 	for _, hv := range hives {
-		if _, err := os.Create(filepath.Join(regDir, hv.name)); err != nil {
+		var f *os.File
+		if f, err = os.Create(filepath.Join(regDir, hv.name)); err != nil {
 			return fmt.Errorf("error while creating registry value at: %s, %s", filepath.Join(regDir, hv.name), err)
 		}
+		f.Close()
 	}
 	return nil
 }
@@ -142,7 +145,7 @@ func detectImageOsVersion(layerPath, tmpDir string) (uint16, error) {
 // Some of the layer files that are generated during the processBaseLayer call must be added back
 // inside the cim, some registry file links must be updated. This function takes care of all those
 // steps. This function opens the cim file for writing and updates it.
-func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
+func postProcessBaseLayer(ctx context.Context, layerPath string, hasUtilityVM bool) (err error) {
 	var layerRelativeSystemHivePath, tmpSystemHivePath string
 
 	// fetch some files from the cim before opening it for writing.
@@ -152,12 +155,15 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	uvmBuildNumber, err := detectImageOsVersion(layerPath, tmpDir)
-	if err != nil {
-		return fmt.Errorf("failed to get os version of uvm: %s", err)
+	var uvmBuildNumber uint16
+	if hasUtilityVM {
+		uvmBuildNumber, err = detectImageOsVersion(layerPath, tmpDir)
+		if err != nil {
+			return fmt.Errorf("failed to get os version of uvm: %s", err)
+		}
 	}
 
-	if uvmBuildNumber >= cimfs.MinimumCimFSBuild {
+	if hasUtilityVM && uvmBuildNumber >= cimfs.MinimumCimFSBuild {
 		layerRelativeSystemHivePath = filepath.Join(utilityVMPath, regFilesPath, "SYSTEM")
 		tmpSystemHivePath = filepath.Join(tmpDir, "SYSTEM")
 		if err := cimfs.FetchFileFromCim(GetCimPathFromLayer(layerPath), layerRelativeSystemHivePath, tmpSystemHivePath); err != nil {
@@ -191,12 +197,14 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 		return fmt.Errorf("failed while adding layout file to cim: %s", err)
 	}
 
-	// add the BCD file updated during processBaseLayer inside the cim.
-	if err := cimWriter.AddFileFromPath(bcdFilePath, filepath.Join(layerPath, bcdFilePath), []byte{}, []byte{}, []byte{}); err != nil {
-		return fmt.Errorf("failed while adding BCD file to cim: %s", err)
+	if hasUtilityVM {
+		// add the BCD file updated during processBaseLayer inside the cim.
+		if err := cimWriter.AddFileFromPath(bcdFilePath, filepath.Join(layerPath, bcdFilePath), []byte{}, []byte{}, []byte{}); err != nil {
+			return fmt.Errorf("failed while adding BCD file to cim: %s", err)
+		}
 	}
 
-	if uvmBuildNumber >= cimfs.MinimumCimFSBuild {
+	if hasUtilityVM && uvmBuildNumber >= cimfs.MinimumCimFSBuild {
 		// This MUST come after createBaselayerHives otherwise createBaseLayerHives will overwrite the
 		// changed system hive file.
 		if err := cimWriter.AddFileFromPath(layerRelativeSystemHivePath, tmpSystemHivePath, []byte{}, []byte{}, []byte{}); err != nil {
