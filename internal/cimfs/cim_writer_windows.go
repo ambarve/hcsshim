@@ -261,3 +261,25 @@ func DestroyCim(cimPath string) error {
 	}
 	return nil
 }
+
+// GetCimUsage returns the total disk usage in bytes by the cim at ptah `cimPath`.
+func GetCimUsage(cimPath string) (uint64, error) {
+	regionFilePaths, err := GetRegionFilePaths(cimPath)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to get cim usage %s", cimPath)
+	}
+	objectFilePaths, err := GetObjectIDFilePaths(cimPath)
+	if err != nil {
+		return 0, errors.Wrapf(err, "failed to get cim usage %s", cimPath)
+	}
+
+	var totalUsage uint64
+	for _, f := range append(regionFilePaths, objectFilePaths...) {
+		fi, err := os.Stat(f)
+		if err != nil {
+			return 0, errors.Wrapf(err, "failed to get usage for file %s", f)
+		}
+		totalUsage += uint64(fi.Size())
+	}
+	return totalUsage, nil
+}
