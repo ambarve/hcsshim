@@ -134,4 +134,8 @@ func UnmountCimLayer(cimPath string) error {
 	return cimfs.Unmount(cimPath)
 }
 
+func GetCimUsage(cimPath string) (uint64, error) {
+	return cimfs.GetCimUsage(cimPath)
+}
+
 type WC_LAYER_DESCRIPTOR = wclayer.WC_LAYER_DESCRIPTOR
