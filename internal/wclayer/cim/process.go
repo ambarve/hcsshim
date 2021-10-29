@@ -207,6 +207,10 @@ func postProcessBaseLayer(ctx context.Context, layerPath string) (err error) {
 			return fmt.Errorf("failed while updating SYSTEM registry inside cim: %s", err)
 		}
 	}
+
+	if err := debuggingSetup(cimWriter); err != nil {
+		return fmt.Errorf("failed during debugging setup: %s", err)
+	}
 	return nil
 }
 
@@ -247,6 +251,25 @@ func processNonBaseLayer(ctx context.Context, layerPath string, parentLayerPaths
 	for _, hv := range mergedHives {
 		cimHivePath := filepath.Join(wclayer.HivesPath, hv.Name())
 		if err := cimWriter.AddFileFromPath(cimHivePath, filepath.Join(tmpCurrentLayer, hv.Name()), []byte{}, []byte{}, []byte{}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// debuggingSetup can be used to do any kind of debugging related operation on the cim
+// before it is closed. Mostly this is used to replace some files inside the cim.
+func debuggingSetup(cimWriter *cimfs.CimFsWriter) error {
+	// Overwrite the wcifs.sys & cimfs.sys files inside the cim.
+	overwriteFiles := []struct {
+		hostPath string // File on the host that should be added to cim
+		cimPath  string // Path inside the cim.
+	}{
+		// {"D:\\cimfs\\drivers\\cimfs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\cimfs.sys"},
+		// {"D:\\cimfs\\drivers\\wcifs.sys", "UtilityVM\\Files\\Windows\\System32\\drivers\\wcifs.sys"},
+	}
+	for _, replace := range overwriteFiles {
+		if err := cimWriter.AddFileFromPath(replace.cimPath, replace.hostPath, []byte{}, []byte{}, []byte{}); err != nil {
 			return err
 		}
 	}

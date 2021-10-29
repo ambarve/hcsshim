@@ -224,22 +224,22 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 		}
 	}
 
-	if cimlayer.IsCimLayer(opts.LayerFolders[1]) && uvm.MountCimSupported() {
+	if cimlayer.IsCimLayer(uvmFolder) && uvm.MountCimSupported() {
 		// If mount cim is supported then we must include a VSMB share in uvm
 		// config that contains the cim which the uvm should use to boot.
 		cimVsmbShare := hcsschema.VirtualSmbShare{
 			Name:    cimVsmbShareName,
-			Path:    cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]),
+			Path:    cimlayer.GetCimDirFromLayer(uvmFolder),
 			Options: vsmbOpts,
 		}
 		virtualSMB.Shares = append(virtualSMB.Shares, cimVsmbShare)
-		err = uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]), vsmbOpts, cimVsmbShareName)
+		err = uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(uvmFolder), vsmbOpts, cimVsmbShareName)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to register VSMB share %s for host path %s", cimVsmbShareName, cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]))
 		}
 
 		// enable boot from cim
-		addBootFromCimRegistryChanges(opts.LayerFolders[1:], &registryChanges)
+		// addBootFromCimRegistryChanges(opts.LayerFolders[1:], &registryChanges)
 	}
 
 	processor := &hcsschema.Processor2{
@@ -292,6 +292,11 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 					},
 				},
 				VirtualSmb: virtualSMB,
+				ComPorts: map[string]hcsschema.ComPort{
+					"0": {
+						NamedPipe: "\\\\.\\pipe\\debugpipe",
+					},
+				},
 			},
 		},
 	}
@@ -364,7 +369,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 	var uvmFolder string
 	templateVhdFolder := opts.LayerFolders[len(opts.LayerFolders)-2]
 	if cimlayer.IsCimLayer(opts.LayerFolders[1]) {
-		uvmLayers := []string{opts.LayerFolders[0], opts.LayerFolders[len(opts.LayerFolders)-1]}
+		uvmLayers := opts.LayerFolders[:len(opts.LayerFolders)-1]
 		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, uvmLayers)
 		if err != nil {
 			return nil, fmt.Errorf("failed to locate utility VM folder from cim layer folders: %s", err)

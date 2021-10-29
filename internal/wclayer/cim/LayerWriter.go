@@ -67,7 +67,7 @@ func isDeltaHive(path string) bool {
 // checks if this particular file should be written with a stdFileWriter instead of
 // using the cimWriter.
 func isStdFile(path string) bool {
-	return (isDeltaHive(path) || path == wclayer.BcdFilePath)
+	return (isDeltaHive(path) || path == wclayer.BcdFilePath || path == wclayer.BootMgrPath)
 }
 
 // Add adds a file to the layer with given metadata.

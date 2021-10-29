@@ -34,6 +34,7 @@ const (
 	UtilityVMFilesPath      = `UtilityVM\Files`
 	RegFilesPath            = `Files\Windows\System32\config`
 	BcdFilePath             = `UtilityVM\Files\EFI\Microsoft\Boot\BCD`
+	BootMgrPath             = `UtilityVM\Files\EFI\Microsoft\Boot\bootmgfw.efi`
 	ContainerBaseVhd        = `blank-base.vhdx`
 	ContainerScratchVhd     = `blank.vhdx`
 	UtilityVMBaseVhd        = `SystemTemplateBase.vhdx`

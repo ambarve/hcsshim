@@ -61,5 +61,22 @@ func updateBcdStoreForBoot(storePath string, diskID, partitionID guid.GUID) erro
 	if err := setBcdOsArcDevice(storePath, diskID, partitionID); err != nil {
 		return err
 	}
-	return nil
+	return setDebugOn(storePath)
+}
+
+// Only added to help with debugging the uvm
+func setDebugOn(storePath string) error {
+	if err := bcdExec(storePath, "/set", "{default}", "testsigning", "on"); err != nil {
+		return err
+	}
+	if err := bcdExec(storePath, "/set", "{default}", "bootdebug", "on"); err != nil {
+		return err
+	}
+	if err := bcdExec(storePath, "/set", "{bootmgr}", "bootdebug", "on"); err != nil {
+		return err
+	}
+	if err := bcdExec(storePath, "/dbgsettings", "SERIAL", "DEBUGPORT:1", "BAUDRATE:115200"); err != nil {
+		return err
+	}
+	return bcdExec(storePath, "/set", "{default}", "debug", "on")
 }
