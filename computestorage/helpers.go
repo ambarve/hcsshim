@@ -194,10 +194,7 @@ func SetupUtilityVMBaseLayer(ctx context.Context, uvmPath, baseVhdPath, diffVhdP
 	}
 
 	bcdPath := filepath.Join(filepath.Dir(baseVhdPath), bcdFilePath)
-	// if err = updateBcdStoreForBoot(bcdPath, partitionInfo.DiskID, partitionInfo.PartitionID); err != nil {
-	// 	return errors.Wrap(err, "failed to update BCD")
-	// }
-	if err = updateBcdStoreForFullCimBoot(bcdPath, partitionInfo.DiskID, partitionInfo.PartitionID); err != nil {
+	if err = updateBcdStoreForBoot(bcdPath, partitionInfo.DiskID, partitionInfo.PartitionID); err != nil {
 		return errors.Wrap(err, "failed to update BCD")
 	}
 

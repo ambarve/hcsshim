@@ -14,13 +14,13 @@ import (
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/logfields"
-	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/ncproxyttrpc"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/processorinfo"
 	"github.com/Microsoft/hcsshim/internal/schemaversion"
+	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
-
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/internal/wcow"
 	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/containerd/ttrpc"
@@ -75,7 +75,7 @@ type OptionsWCOW struct {
 // contains all the uvm related files.
 // - ControlSet001\Control\HVSI /v UvmLayerRelativePath /t REG_SZ /d UtilityVM\\Files\\ (the ending \\ is important)
 func addBootFromCimRegistryChanges(layerFolders []string, reg *hcsschema.RegistryChanges) {
-	// cimRelativePath := cimVsmbShareName + "\\" + cimlayer.GetCimNameFromLayer(layerFolders[0])
+	cimRelativePath := cimVsmbShareName + "\\" + cimlayer.GetCimNameFromLayer(layerFolders[0])
 
 	regChanges := []hcsschema.RegistryValue{
 		{
@@ -85,7 +85,7 @@ func addBootFromCimRegistryChanges(layerFolders []string, reg *hcsschema.Registr
 			},
 			Name:       "WCIFSCIMFSContainerMode",
 			Type_:      "DWord",
-			DWordValue: 3,
+			DWordValue: 1,
 		},
 		{
 			Key: &hcsschema.RegistryKey{
@@ -96,15 +96,15 @@ func addBootFromCimRegistryChanges(layerFolders []string, reg *hcsschema.Registr
 			Type_:      "DWord",
 			DWordValue: 1,
 		},
-		// {
-		// 	Key: &hcsschema.RegistryKey{
-		// 		Hive: "System",
-		// 		Name: "ControlSet001\\Control\\HVSI",
-		// 	},
-		// 	Name:        "CimRelativePath",
-		// 	Type_:       "String",
-		// 	StringValue: cimRelativePath,
-		// },
+		{
+			Key: &hcsschema.RegistryKey{
+				Hive: "System",
+				Name: "ControlSet001\\Control\\HVSI",
+			},
+			Name:        "CimRelativePath",
+			Type_:       "String",
+			StringValue: cimRelativePath,
+		},
 		{
 			Key: &hcsschema.RegistryKey{
 				Hive: "System",
@@ -178,9 +178,9 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
-	// if cimlayer.IsCimLayer(opts.LayerFolders[1]) {
-	vsmbOpts.NoDirectmap = !uvm.MountCimSupported()
-	// }
+	if cimlayer.IsCimLayer(opts.LayerFolders[1]) {
+		vsmbOpts.NoDirectmap = !uvm.MountCimSupported()
+	}
 
 	virtualSMB := &hcsschema.VirtualSmb{
 		// When using cim layers the value of `DirectFileMappingInMB` needs to be
@@ -224,23 +224,23 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 		}
 	}
 
-	// if cimlayer.IsCimLayer(opts.LayerFolders[1]) && uvm.MountCimSupported() {
-	// 	// If mount cim is supported then we must include a VSMB share in uvm
-	// 	// config that contains the cim which the uvm should use to boot.
-	// 	cimVsmbShare := hcsschema.VirtualSmbShare{
-	// 		Name:    cimVsmbShareName,
-	// 		Path:    cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]),
-	// 		Options: vsmbOpts,
-	// 	}
-	// 	virtualSMB.Shares = append(virtualSMB.Shares, cimVsmbShare)
-	// 	err = uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]), vsmbOpts, cimVsmbShareName)
-	// 	if err != nil {
-	// 		return nil, errors.Wrapf(err, "failed to register VSMB share %s for host path %s", cimVsmbShareName, cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]))
-	// 	}
+	if cimlayer.IsCimLayer(opts.LayerFolders[1]) && uvm.MountCimSupported() {
+		// If mount cim is supported then we must include a VSMB share in uvm
+		// config that contains the cim which the uvm should use to boot.
+		cimVsmbShare := hcsschema.VirtualSmbShare{
+			Name:    cimVsmbShareName,
+			Path:    cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]),
+			Options: vsmbOpts,
+		}
+		virtualSMB.Shares = append(virtualSMB.Shares, cimVsmbShare)
+		err = uvm.registerVSMBShare(cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]), vsmbOpts, cimVsmbShareName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to register VSMB share %s for host path %s", cimVsmbShareName, cimlayer.GetCimDirFromLayer(opts.LayerFolders[1]))
+		}
 
-	// enable boot from cim
-	addBootFromCimRegistryChanges(opts.LayerFolders[1:], &registryChanges)
-	// }
+		// enable boot from cim
+		addBootFromCimRegistryChanges(opts.LayerFolders[1:], &registryChanges)
+	}
 
 	processor := &hcsschema.Processor2{
 		Count:  uvm.processorCount,
@@ -266,7 +266,6 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 					BootThis: &hcsschema.UefiBootEntry{
 						DevicePath: `\EFI\Microsoft\Boot\bootmgfw.efi`,
 						DeviceType: "VmbFs",
-						// VmbFsRootPath: filepath.Join(uvmFolder, `UtilityVM\Files`),
 					},
 				},
 			},
@@ -293,11 +292,6 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 					},
 				},
 				VirtualSmb: virtualSMB,
-				ComPorts: map[string]hcsschema.ComPort{
-					"0": {
-						NamedPipe: "\\\\.\\pipe\\debugpipe",
-					},
-				},
 			},
 		},
 	}
@@ -367,21 +361,20 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		return nil, errors.Wrap(err, errBadUVMOpts.Error())
 	}
 
+	var uvmFolder string
 	templateVhdFolder := opts.LayerFolders[len(opts.LayerFolders)-2]
-	var uvmFolder string = templateVhdFolder
-	// if cimlayer.IsCimLayer(opts.LayerFolders[1]) {
-	// 	uvmLayers := []string{opts.LayerFolders[0], opts.LayerFolders[len(opts.LayerFolders)-1]}
-	// 	uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, uvmLayers)
-	// 	if err != nil {
-	// 		return nil, fmt.Errorf("failed to locate utility VM folder from cim layer folders: %s", err)
-	// 	}
-	// } else {
-	// uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
-	// }
-	mylogger.LogFmt("uvmFolder is at: %s\n", templateVhdFolder)
-	// }
+	if cimlayer.IsCimLayer(opts.LayerFolders[1]) {
+		uvmLayers := []string{opts.LayerFolders[0], opts.LayerFolders[len(opts.LayerFolders)-1]}
+		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, uvmLayers)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from cim layer folders: %s", err)
+		}
+	} else {
+		uvmFolder, err = uvmfolder.LocateUVMFolder(ctx, opts.LayerFolders)
+		if err != nil {
+			return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %s", err)
+		}
+	}
 
 	// TODO: BUGBUG Remove this. @jhowardmsft
 	//       It should be the responsiblity of the caller to do the creation and population.
@@ -426,30 +419,12 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 					},
 				},
 			},
-			"1": {
-				Attachments: map[string]hcsschema.Attachment{
-					"0": {
-						Path:  "D:\\Containers\\testdata\\cimboot\\sandbox.vhdx",
-						Type_: "VirtualDisk",
-					},
-				},
-			},
 		}
 
 		uvm.scsiLocations[0][0] = newSCSIMount(uvm,
 			doc.VirtualMachine.Devices.Scsi["0"].Attachments["0"].Path,
 			"",
 			doc.VirtualMachine.Devices.Scsi["0"].Attachments["0"].Type_,
-			"",
-			1,
-			0,
-			0,
-			false)
-
-		uvm.scsiLocations[1][0] = newSCSIMount(uvm,
-			doc.VirtualMachine.Devices.Scsi["1"].Attachments["0"].Path,
-			"",
-			doc.VirtualMachine.Devices.Scsi["1"].Attachments["0"].Type_,
 			"",
 			1,
 			0,
