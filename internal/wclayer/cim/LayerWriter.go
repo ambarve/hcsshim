@@ -1,16 +1,19 @@
 package cim
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/internal/cimfs"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/mylogger"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"go.opencensus.io/trace"
@@ -64,16 +67,22 @@ func isDeltaHive(path string) bool {
 	return false
 }
 
+const bootmgFile = `UtilityVM\Files\EFI\Microsoft\Boot\bootmgfw.efi`
+
 // checks if this particular file should be written with a stdFileWriter instead of
 // using the cimWriter.
 func isStdFile(path string) bool {
-	return (isDeltaHive(path) || path == wclayer.BcdFilePath)
+	return (isDeltaHive(path) || path == wclayer.BcdFilePath || path == bootmgFile)
+	// return (isDeltaHive(path) || path == wclayer.BcdFilePath)
 }
 
 // Add adds a file to the layer with given metadata.
 func (cw *CimLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
 	if name == wclayer.UtilityVMPath {
 		cw.hasUtilityVM = true
+	}
+	if strings.Contains(name, "ntoskrnl.exe") {
+		mylogger.LogFmt("kernel found at %s\n", name)
 	}
 
 	if isStdFile(name) {
@@ -131,6 +140,18 @@ func (cw *CimLayerWriter) Write(b []byte) (int, error) {
 	return cw.activeWriter.Write(b)
 }
 
+func execWithPowershell(args ...string) error {
+	var out bytes.Buffer
+	cmd := exec.Command("powershell.exe", args...)
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("execWithPowershell (%s) failed with error: %s, stdout: %s\n", cmd.String(), err, out.String())
+		return err
+	}
+	fmt.Println(out.String())
+	return nil
+}
+
 // Close finishes the layer writing process and releases any resources.
 func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 	if err := cw.stdFileWriter.Close(ctx); err != nil {
@@ -155,6 +176,26 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 			return fmt.Errorf("failed to process layer: %s", err)
 		}
 	}
+
+	// mount the vhd and copy cim to that
+	cimVhdPath := "D:\\Containers\\testdata\\cimboot\\sandbox.vhdx"
+
+	if err = execWithPowershell("Mount-VHD", cimVhdPath); err != nil {
+		return fmt.Errorf("mount vhd failed : %s", err)
+	}
+	defer execWithPowershell("Dismount-VHD", cimVhdPath)
+
+	cimlayersPath := GetCimDirFromLayer(cw.path)
+	if err = execWithPowershell("rm", "-r", "F:/cim-layers/1/*"); err != nil {
+		return fmt.Errorf("rm from vhd failed : %s", err)
+	}
+	if err = execWithPowershell("cp", cimlayersPath+"/*", "F:/cim-layers/1/"); err != nil {
+		return fmt.Errorf("copy cim to vhd failed : %s", err)
+	}
+	if err = execWithPowershell("cp", "\\\\winbuilds\\release\\rs_fun_deploy_t3\\22486.1000.211023-1934\\amd64fre\\bin\\bootmgrasbuilt\\bootmgfw.efi", filepath.Join(cw.path, "UtilityVM\\Files\\EFI\\Microsoft\\Boot")); err != nil {
+		return fmt.Errorf("copy new bootmgw.efi failed : %s", err)
+	}
+
 	return nil
 }
 
