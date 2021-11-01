@@ -1006,6 +1006,8 @@ func Test_RunContainer_ExecUser_Root_LCOW(t *testing.T) {
 	}
 }
 
+const scratchOverrideLabel = "containerd.io/snapshot/io.microsoft.override-scratch"
+
 func Test_RunContainerWithScratchLocationOverride_WCOW(t *testing.T) {
 	client := newTestRuntimeClient(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1064,7 +1066,7 @@ func Test_RunContainerWithScratchLocationOverride_WCOW(t *testing.T) {
 			defer time.Sleep(10 * time.Second)
 			sandboxRequest := getRunPodSandboxRequest(t, test.hypervisorType,
 				WithSandboxAnnotations(map[string]string{
-					"containerd.io/snapshot/cri.scratch-location": sandboxScratchDir,
+					scratchOverrideLabel: sandboxScratchDir,
 				}))
 
 			podID := runPodSandbox(t, client, ctx, sandboxRequest)
@@ -1083,7 +1085,7 @@ func Test_RunContainerWithScratchLocationOverride_WCOW(t *testing.T) {
 					},
 					Command: []string{},
 					Annotations: map[string]string{
-						"containerd.io/snapshot/cri.scratch-location": containerScratchDir,
+						scratchOverrideLabel: containerScratchDir,
 					},
 				},
 				SandboxConfig: sandboxRequest.Config,
@@ -1147,20 +1149,20 @@ func Test_RunContainerWithScratchLocationOverrideAndShareScratch_LCOW(t *testing
 			testName: "OverrideScratch",
 			command:  []string{"top"},
 			sandboxAnnotations: map[string]string{
-				"containerd.io/snapshot/cri.scratch-location": overrideScratchDir,
+				scratchOverrideLabel: overrideScratchDir,
 			},
 			containerAnnotations: map[string]string{
-				"containerd.io/snapshot/cri.scratch-location": overrideScratchDir,
+				scratchOverrideLabel: overrideScratchDir,
 			},
 		},
 		{
 			testName: "OverrideAndShareScratch",
 			command:  []string{"top"},
 			sandboxAnnotations: map[string]string{
-				"containerd.io/snapshot/cri.scratch-location": overrideScratchDir,
+				scratchOverrideLabel: overrideScratchDir,
 			},
 			containerAnnotations: map[string]string{
-				"containerd.io/snapshot/cri.scratch-location":                         overrideScratchDir,
+				scratchOverrideLabel: overrideScratchDir,
 				"containerd.io/snapshot/io.microsoft.container.storage.reuse-scratch": "true",
 			},
 		},
