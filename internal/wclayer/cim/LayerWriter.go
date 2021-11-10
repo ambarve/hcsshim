@@ -160,11 +160,11 @@ func (cw *CimLayerWriter) Close(ctx context.Context) (err error) {
 			return fmt.Errorf("processBaseLayer failed: %s", err)
 		}
 
-		if err := postProcessBaseLayer(ctx, cw.path); err != nil {
+		if err := postProcessBaseLayer(ctx, cw.path, cw.hasUtilityVM); err != nil {
 			return fmt.Errorf("postProcessBaseLayer failed: %s", err)
 		}
 	} else {
-		if err := processNonBaseLayer(ctx, cw.path, cw.parentLayerPaths); err != nil {
+		if err := processNonBaseLayer(ctx, cw.path, cw.parentLayerPaths, cw.hasUtilityVM); err != nil {
 			return fmt.Errorf("failed to process layer: %s", err)
 		}
 	}
