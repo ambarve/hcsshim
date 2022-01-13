@@ -28,11 +28,11 @@ func (e *MountError) Error() string {
 	return s
 }
 
-var mountMapLock sync.Mutex
+var mountLock sync.Mutex
 
 func MountWithFlags(cimPath string, mountFlags uint32) (string, error) {
-	mountMapLock.Lock()
-	defer mountMapLock.Unlock()
+	mountLock.Lock()
+	defer mountLock.Unlock()
 	layerGUID, err := guid.NewV4()
 	if err != nil {
 		return "", &MountError{Cim: cimPath, Op: "Mount", Err: err}
@@ -53,8 +53,8 @@ func Mount(cimPath string) (string, error) {
 
 // Unmount unmounts the cim at mounted at path `volumePath`.
 func Unmount(volumePath string) error {
-	mountMapLock.Lock()
-	defer mountMapLock.Unlock()
+	mountLock.Lock()
+	defer mountLock.Unlock()
 
 	// The path is expected to be in the \\?\Volume{GUID}\ format
 	if volumePath[len(volumePath)-1] != '\\' {
