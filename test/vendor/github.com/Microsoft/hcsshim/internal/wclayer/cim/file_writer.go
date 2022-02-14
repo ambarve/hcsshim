@@ -10,14 +10,10 @@ import (
 
 	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/internal/safefile"
+	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/pkg/errors"
 )
-
-type dirInfo struct {
-	path     string
-	fileInfo winio.FileBasicInfo
-}
 
 // stdFileWriter writes the files of a layer to the layer folder instead of writing them inside the cim.
 // For some files (like the Hive files or some UtilityVM files) it is necessary to write them as a normal file
@@ -85,7 +81,7 @@ func (sfw *stdFileWriter) AddLink(name string, target string) error {
 	if err := sfw.closeActiveFile(); err != nil {
 		return err
 	}
-	if strings.HasPrefix(name, hivesPath) {
+	if strings.HasPrefix(name, wclayer.HivesPath) {
 		return errors.New("invalid hard link in layer")
 	}
 	return nil
