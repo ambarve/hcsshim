@@ -1,7 +1,8 @@
 package cimfs
 
 import (
-	"io/ioutil"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"unsafe"
@@ -145,19 +146,23 @@ func (c *CimFsWriter) AddFileFromPath(pathInCim, hostPath string, securityDescri
 
 	basicInfo, err := winio.GetFileBasicInfo(f)
 	if err != nil {
-		return errors.Wrapf(err, "AddFileFromPath, failed to get file info for %s", hostPath)
+		return errors.Wrapf(err, "AddFileFromPath, failed to get basic file info for %s", hostPath)
 	}
 
-	replaceData, err := ioutil.ReadFile(hostPath)
+	stdInfo, err := winio.GetFileStandardInfo(f)
 	if err != nil {
-		return errors.Wrapf(err, "AddFileFromPath, unable to read file %s", hostPath)
+		return errors.Wrapf(err, "AddFileFromPath, failed to get standard file info for %s", hostPath)
 	}
-	if err := c.AddFile(pathInCim, basicInfo, int64(len(replaceData)), securityDescriptor, extendedAttributes, reparseData); err != nil {
+
+	if err := c.AddFile(pathInCim, basicInfo, stdInfo.EndOfFile, securityDescriptor, extendedAttributes, reparseData); err != nil {
 		return err
 	}
 
-	if _, err := c.Write(replaceData); err != nil {
+	written, err := io.Copy(c, f)
+	if err != nil {
 		return &PathError{Cim: c.name, Op: "write", Path: c.activeName, Err: err}
+	} else if written != stdInfo.EndOfFile {
+		return &PathError{Cim: c.name, Op: "write", Path: c.activeName, Err: fmt.Errorf("expected to write %d, wrote %d", stdInfo.EndOfFile, written)}
 	}
 	return nil
 }
