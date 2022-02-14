@@ -7,11 +7,10 @@ import (
 	"path/filepath"
 
 	"github.com/Microsoft/hcsshim/internal/cimfs"
+	"github.com/Microsoft/hcsshim/internal/wclayer"
 	"github.com/Microsoft/hcsshim/internal/winapi"
 	"github.com/Microsoft/hcsshim/osversion"
-	"github.com/containerd/containerd/log"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // enableCimBoot Opens the SYSTEM registry hive at path `hivePath` in
@@ -84,7 +83,7 @@ func mergeWithParentLayerHives(layerPath, parentLayerPath, outputDir string) err
 	parentCimPath := GetCimPathFromLayer(parentLayerPath)
 
 	for _, hv := range hives {
-		err := cimfs.FetchFileFromCim(parentCimPath, filepath.Join(hivesPath, hv.base), filepath.Join(tmpParentLayer, hv.base))
+		err := cimfs.FetchFileFromCim(parentCimPath, filepath.Join(wclayer.HivesPath, hv.base), filepath.Join(tmpParentLayer, hv.base))
 		if err != nil {
 			return err
 		}
@@ -92,7 +91,7 @@ func mergeWithParentLayerHives(layerPath, parentLayerPath, outputDir string) err
 
 	// merge hives
 	for _, hv := range hives {
-		err := mergeHive(filepath.Join(tmpParentLayer, hv.base), filepath.Join(layerPath, hivesPath, hv.delta), filepath.Join(outputDir, hv.base))
+		err := mergeHive(filepath.Join(tmpParentLayer, hv.base), filepath.Join(layerPath, wclayer.HivesPath, hv.delta), filepath.Join(outputDir, hv.base))
 		if err != nil {
 			return err
 		}
@@ -136,52 +135,4 @@ func mergeHive(parentHivePath, deltaHivePath, mergedHivePath string) (err error)
 		return fmt.Errorf("failed to save hive: %s", err)
 	}
 	return
-}
-
-// getOsBuildNumberFromRegistry fetches the "CurrentBuild" value at path
-// "Microsoft\Windows NT\CurrentVersion" from the SOFTWARE registry hive at path
-// `regHivePath`. This is used to detect the build version of the uvm.
-func getOsBuildNumberFromRegistry(regHivePath string) (_ string, err error) {
-	var storeHandle, keyHandle winapi.OrHKey
-	var dataType, dataLen uint32
-	keyPath := "Microsoft\\Windows NT\\CurrentVersion"
-	valueName := "CurrentBuild"
-	dataLen = 16 // build version string can't be more than 5 wide chars?
-	dataBuf := make([]byte, dataLen)
-
-	if err = winapi.OrOpenHive(regHivePath, &storeHandle); err != nil {
-		return "", fmt.Errorf("failed to open registry store at %s: %s", regHivePath, err)
-	}
-	defer func() {
-		if closeErr := winapi.OrCloseHive(storeHandle); closeErr != nil {
-			log.L.WithFields(logrus.Fields{
-				"error": closeErr,
-				"hive":  regHivePath,
-			}).Warnf("failed to close hive")
-		}
-	}()
-
-	if err = winapi.OrOpenKey(storeHandle, keyPath, &keyHandle); err != nil {
-		return "", fmt.Errorf("failed to open key at %s: %s", keyPath, err)
-	}
-	defer func() {
-		if closeErr := winapi.OrCloseKey(keyHandle); closeErr != nil {
-			log.L.WithFields(logrus.Fields{
-				"error": closeErr,
-				"hive":  regHivePath,
-				"key":   keyPath,
-				"value": valueName,
-			}).Warnf("failed to close hive key")
-		}
-	}()
-
-	if err = winapi.OrGetValue(keyHandle, "", valueName, &dataType, &dataBuf[0], &dataLen); err != nil {
-		return "", fmt.Errorf("failed to get value of %s: %s", valueName, err)
-	}
-
-	if dataType != uint32(winapi.REG_TYPE_SZ) {
-		return "", fmt.Errorf("unexpected build number data type (%d)", dataType)
-	}
-
-	return winapi.ParseUtf16LE(dataBuf[:(dataLen - 2)]), nil
 }
