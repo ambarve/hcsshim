@@ -14,11 +14,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-type dirInfo struct {
-	path     string
-	fileInfo winio.FileBasicInfo
-}
-
 // stdFileWriter writes the files of a layer to the layer folder instead of writing them inside the cim.
 // For some files (like the Hive files or some UtilityVM files) it is necessary to write them as a normal file
 // first, do some modifications on them (for example merging of hives or processing of UtilityVM files)
