@@ -55,12 +55,12 @@ func ImportCimLayerFromTar(ctx context.Context, r io.Reader, layerPath string, p
 
 func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWriter, layerPath string) (int64, error) {
 	tr := tar.NewReader(r)
-	hdr, err := tr.Next()
 	buf := bufio.NewWriter(w)
-	defer buf.Flush()
 	size := int64(0)
+
 	// Iterate through the files in the archive.
-	for err == nil {
+	hdr, loopErr := tr.Next()
+	for loopErr == nil {
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()
@@ -72,17 +72,15 @@ func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWrite
 		base := path.Base(hdr.Name)
 		if strings.HasPrefix(base, ociwclayer.WhiteoutPrefix) {
 			name := path.Join(path.Dir(hdr.Name), base[len(ociwclayer.WhiteoutPrefix):])
-			err = w.Remove(filepath.FromSlash(name))
-			if err != nil {
-				return 0, err
+			if rErr := w.Remove(filepath.FromSlash(name)); rErr != nil {
+				return 0, rErr
 			}
-			hdr, err = tr.Next()
+			hdr, loopErr = tr.Next()
 		} else if hdr.Typeflag == tar.TypeLink {
-			err = w.AddLink(filepath.FromSlash(hdr.Name), filepath.FromSlash(hdr.Linkname))
-			if err != nil {
-				return 0, err
+			if linkErr := w.AddLink(filepath.FromSlash(hdr.Name), filepath.FromSlash(hdr.Linkname)); linkErr != nil {
+				return 0, linkErr
 			}
-			hdr, err = tr.Next()
+			hdr, loopErr = tr.Next()
 		} else {
 			name, fileSize, fileInfo, err := backuptar.FileInfoFromHeader(hdr)
 			if err != nil {
@@ -104,22 +102,22 @@ func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWrite
 					fileInfo.FileAttributes &^= uint32(windows.FILE_ATTRIBUTE_REPARSE_POINT)
 				}
 			}
-			if err := w.Add(filepath.FromSlash(name), fileInfo, fileSize, sddl, eadata, reparse); err != nil {
-				return 0, err
+
+			if addErr := w.Add(filepath.FromSlash(name), fileInfo, fileSize, sddl, eadata, reparse); addErr != nil {
+				return 0, addErr
 			}
-			size += fileSize
 			if hdr.Typeflag == tar.TypeReg || hdr.Typeflag == tar.TypeRegA {
-				_, err = io.Copy(buf, tr)
-				if err != nil {
-					return 0, err
+				if _, cpErr := io.Copy(buf, tr); cpErr != nil {
+					return 0, cpErr
 				}
 			}
+			size += fileSize
 
 			// Copy all the alternate data streams and return the next non-ADS header.
 			var ahdr *tar.Header
 			for {
-				ahdr, err = tr.Next()
-				if err != nil {
+				ahdr, loopErr = tr.Next()
+				if loopErr != nil {
 					break
 				}
 
@@ -135,18 +133,24 @@ func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWrite
 					return 0, fmt.Errorf("stream types other than $DATA are not supported, found: %s", ahdr.Name)
 				}
 
-				err = w.AddAlternateStream(filepath.FromSlash(ahdr.Name), uint64(ahdr.Size))
-				if err != nil {
-					return 0, err
+				if addErr := w.AddAlternateStream(filepath.FromSlash(ahdr.Name), uint64(ahdr.Size)); addErr != nil {
+					return 0, addErr
 				}
 
-				_, err = io.Copy(buf, tr)
-				if err != nil {
-					return 0, err
+				if _, cpErr := io.Copy(buf, tr); cpErr != nil {
+					return 0, cpErr
 				}
 			}
 		}
-		buf.Flush()
+
+		if flushErr := buf.Flush(); flushErr != nil {
+			if loopErr == nil {
+				loopErr = flushErr
+			}
+		}
+	}
+	if loopErr != io.EOF {
+		return 0, loopErr
 	}
 	return size, nil
 }
