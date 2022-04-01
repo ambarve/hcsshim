@@ -101,6 +101,8 @@ func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWrite
 				if (fileInfo.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT) > 0 && len(reparse) == 0 {
 					fileInfo.FileAttributes &^= uint32(windows.FILE_ATTRIBUTE_REPARSE_POINT)
 				}
+			} else if (fileInfo.FileAttributes & windows.FILE_ATTRIBUTE_REPARSE_POINT) > 0 {
+				fileInfo.FileAttributes &^= uint32(windows.FILE_ATTRIBUTE_REPARSE_POINT)
 			}
 
 			if addErr := w.Add(filepath.FromSlash(name), fileInfo, fileSize, sddl, eadata, reparse); addErr != nil {
