@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"testing"
 
-	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
+	runtime "k8s.io/cri-api/pkg/apis/runtime/v1"
 )
 
 func Test_MultipleContainers_WCOWHypervisor(t *testing.T) {
