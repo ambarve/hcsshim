@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -52,6 +54,10 @@ func newWcowPodSandboxTask(ctx context.Context, events publisher, id, bundle str
 	// In the normal case the `Signal` call from the caller killed this fake
 	// init process.
 	go wpst.waitInitExit()
+
+	// start tracing: Note starting it here will only work for WCOW.
+	wpst.startWprTracing(ctx)
+
 	return wpst
 }
 
@@ -219,6 +225,8 @@ func (wpst *wcowPodSandboxTask) waitInitExit() {
 	// Wait for it to exit on its own
 	wpst.init.Wait()
 
+	wpst.stopWprTracing(ctx)
+
 	// Close the host and event the exit
 	wpst.close(ctx)
 }
@@ -312,4 +320,69 @@ func (wpst *wcowPodSandboxTask) ProcessorInfo(ctx context.Context) (*processorIn
 	return &processorInfo{
 		count: wpst.host.ProcessorCount(),
 	}, nil
+}
+
+var (
+	// path of the xperf directory on the host
+	hostXperfDirPath = "C:\\xperf"
+	// path inside the uvm at which the xperf directory will be made available.
+	uvmXperfDirPath = "C:\\xperf"
+	// path to the xperf executable inside the uvm.
+	uvmXperfPath = filepath.Join(uvmXperfDirPath, "xperf.exe")
+	// xperf tracing command
+	xperfStartTraceCmd = []string{
+		uvmXperfPath,
+		"-On",
+		"PROC_THREAD+LOADER+MEMINFO+MEMINFO_WS",
+		"-stackwalk",
+		"Profile+ProcessCreate+ProcessDelete",
+	}
+)
+
+// Starts the wpr tracing inside the uvm as soon as wcowPodSandboxTask starts running
+// This can be made generic and can be instead used to run anything else in the uvm
+// at the beginning.
+func (wpst *wcowPodSandboxTask) startWprTracing(ctx context.Context) error {
+	// first share the xperf directory
+	err := wpst.Share(ctx, &shimdiag.ShareRequest{
+		HostPath: hostXperfDirPath,
+		UvmPath:  uvmXperfDirPath,
+		ReadOnly: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed while sharing directory: %s", err)
+	}
+
+	// start the tracing now
+	_, err = cmd.ExecInUvm(ctx, wpst.host, &cmd.CmdProcessRequest{
+		Args:     xperfStartTraceCmd,
+		Workdir:  uvmXperfDirPath,
+		Terminal: false,
+		Stdin:    "",
+		Stdout:   "",
+		Stderr:   "",
+	})
+	return err
+}
+
+func (wpst *wcowPodSandboxTask) stopWprTracing(ctx context.Context) error {
+	// Create the trace file name by using uvm ID
+	traceFilePath := filepath.Join(uvmXperfDirPath, "uvm_"+wpst.host.ID()+"_trace.etl")
+
+	xperfStopTraceCmd := []string{
+		uvmXperfPath,
+		"-stop",
+		"-d",
+		traceFilePath,
+	}
+
+	_, err := cmd.ExecInUvm(ctx, wpst.host, &cmd.CmdProcessRequest{
+		Args:     xperfStopTraceCmd,
+		Workdir:  uvmXperfDirPath,
+		Terminal: false,
+		Stdin:    "",
+		Stdout:   "",
+		Stderr:   "",
+	})
+	return err
 }
