@@ -31,7 +31,7 @@ var (
 	svcMgrConnectErr  error
 )
 
-const tomlPath = `C:\containerplat\containerd.toml`
+const tomlPath = `D:\Containers\containerplat\containerd.toml`
 
 func getSvcMgr() (*mgr.Mgr, error) {
 	svcMgrConnectOnce.Do(func() {

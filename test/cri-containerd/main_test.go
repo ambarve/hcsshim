@@ -24,6 +24,7 @@ import (
 	"github.com/containerd/typeurl"
 	"github.com/gogo/protobuf/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	runtime "k8s.io/cri-api/pkg/apis/runtime/v1alpha2"
 )
 
@@ -213,6 +214,23 @@ func getWindowsServerCoreImage(build uint16) string {
 	}
 }
 
+const GRPCHeader = "containerd-namespace"
+
+func withGRPCNamespaceHeader(ctx context.Context, namespace string) context.Context {
+	// also store on the grpc headers so it gets picked up by any clients that
+	// are using this.
+	nsheader := metadata.Pairs(GRPCHeader, namespace)
+	md, ok := metadata.FromOutgoingContext(ctx) // merge with outgoing context.
+	if !ok {
+		md = nsheader
+	} else {
+		// order ensures the latest is first in this list.
+		md = metadata.Join(nsheader, md)
+	}
+
+	return metadata.NewOutgoingContext(ctx, md)
+}
+
 func createGRPCConn(ctx context.Context) (*grpc.ClientConn, error) {
 	addr, dialer, err := kubeutil.GetAddressAndDialer(*flagCRIEndpoint)
 	if err != nil {
@@ -293,24 +311,28 @@ func pullRequiredImages(t *testing.T, images []string, opts ...SandboxConfigOpt)
 	opts = append(opts, WithSandboxLabels(map[string]string{
 		"sandbox-platform": "windows/amd64", // Not required for Windows but makes the test safer depending on defaults in the config.
 	}))
-	pullRequiredImagesWithOptions(t, images, opts...)
+
+	client := newTestImageClient(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	pullRequiredImagesWithOptions(ctx, client, t, images, opts...)
 }
 
 func pullRequiredLCOWImages(t *testing.T, images []string, opts ...SandboxConfigOpt) {
 	opts = append(opts, WithSandboxLabels(map[string]string{
 		"sandbox-platform": "linux/amd64",
 	}))
-	pullRequiredImagesWithOptions(t, images, opts...)
-}
-
-func pullRequiredImagesWithOptions(t *testing.T, images []string, opts ...SandboxConfigOpt) {
-	if len(images) < 1 {
-		return
-	}
 
 	client := newTestImageClient(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	pullRequiredImagesWithOptions(ctx, client, t, images, opts...)
+}
+
+func pullRequiredImagesWithOptions(ctx context.Context, client runtime.ImageServiceClient, t *testing.T, images []string, opts ...SandboxConfigOpt) {
+	if len(images) < 1 {
+		return
+	}
 
 	sb := &runtime.PodSandboxConfig{}
 	for _, o := range opts {
@@ -318,7 +340,7 @@ func pullRequiredImagesWithOptions(t *testing.T, images []string, opts ...Sandbo
 			t.Fatalf("failed to apply PodSandboxConfig option: %s", err)
 		}
 	}
-
+	t.Logf("pull image: %s\n", images[0])
 	for _, image := range images {
 		_, err := client.PullImage(ctx, &runtime.PullImageRequest{
 			Image: &runtime.ImageSpec{
