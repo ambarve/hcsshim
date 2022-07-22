@@ -96,8 +96,8 @@ func validateHeader(h *format.CommonHeader) error {
 	if !bytes.Equal(h.Magic[:], format.MagicValue[:]) {
 		return errors.New("not a cim file")
 	}
-	if h.Version.Major != format.CurrentVersion.Major {
-		return fmt.Errorf("unsupported cim version. cim version %v expected version %v", h.Version, format.CurrentVersion)
+	if h.Version.Major > format.CurrentVersion.Major || h.Version.Major < format.MinSupportedVersion.Major {
+		return fmt.Errorf("unsupported cim version. cim version %v must be between %v & %v", h.Version, format.MinSupportedVersion, format.CurrentVersion)
 	}
 	return nil
 }

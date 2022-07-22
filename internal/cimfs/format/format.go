@@ -33,7 +33,9 @@ type Version struct {
 	Major, Minor uint32
 }
 
-var CurrentVersion = Version{2, 0}
+var CurrentVersion = Version{3, 0}
+
+var MinSupportedVersion = Version{2, 0}
 
 type FileType uint8
 
