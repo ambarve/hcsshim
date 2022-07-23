@@ -13,15 +13,19 @@ github.com/Microsoft/go-winio/vhd
 # github.com/cenkalti/backoff/v4 v4.1.2
 ## explicit; go 1.13
 github.com/cenkalti/backoff/v4
-# github.com/containerd/cgroups v1.0.2
+# github.com/containerd/cgroups v1.0.3
 ## explicit; go 1.16
 github.com/containerd/cgroups
 github.com/containerd/cgroups/stats/v1
 # github.com/containerd/console v1.0.3
 ## explicit; go 1.13
 github.com/containerd/console
-# github.com/containerd/containerd v1.5.10 => github.com/ambarve/containerd v1.5.1-0.20220401234948-5d9ff4a8721f
-## explicit; go 1.16
+# github.com/containerd/containerd v1.6.6 => ../containerd
+## explicit; go 1.17
+github.com/containerd/containerd/api/events
+github.com/containerd/containerd/api/services/ttrpc/events/v1
+github.com/containerd/containerd/api/types
+github.com/containerd/containerd/api/types/task
 github.com/containerd/containerd/defaults
 github.com/containerd/containerd/errdefs
 github.com/containerd/containerd/events
@@ -42,12 +46,6 @@ github.com/containerd/containerd/runtime/v2/task
 github.com/containerd/containerd/sys
 github.com/containerd/containerd/sys/reaper
 github.com/containerd/containerd/version
-# github.com/containerd/containerd/api v1.6.0-beta.3
-## explicit; go 1.16
-github.com/containerd/containerd/api/events
-github.com/containerd/containerd/api/services/ttrpc/events/v1
-github.com/containerd/containerd/api/types
-github.com/containerd/containerd/api/types/task
 # github.com/containerd/fifo v1.0.0
 ## explicit; go 1.13
 github.com/containerd/fifo
@@ -90,7 +88,7 @@ github.com/docker/go-events
 # github.com/docker/go-units v0.4.0
 ## explicit
 github.com/docker/go-units
-# github.com/godbus/dbus/v5 v5.0.4
+# github.com/godbus/dbus/v5 v5.0.6
 ## explicit; go 1.12
 github.com/godbus/dbus/v5
 # github.com/gogo/protobuf v1.3.2
@@ -153,12 +151,12 @@ github.com/moby/sys/mountinfo
 # github.com/opencontainers/go-digest v1.0.0
 ## explicit; go 1.13
 github.com/opencontainers/go-digest
-# github.com/opencontainers/image-spec v1.0.2
+# github.com/opencontainers/image-spec v1.0.3-0.20211202183452-c5a74bcca799
 ## explicit
 github.com/opencontainers/image-spec/specs-go
 github.com/opencontainers/image-spec/specs-go/v1
-# github.com/opencontainers/runc v1.0.3
-## explicit; go 1.13
+# github.com/opencontainers/runc v1.1.2
+## explicit; go 1.16
 github.com/opencontainers/runc/libcontainer/devices
 github.com/opencontainers/runc/libcontainer/user
 # github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417
@@ -189,7 +187,7 @@ github.com/vishvananda/netns
 # go.etcd.io/bbolt v1.3.6
 ## explicit; go 1.12
 go.etcd.io/bbolt
-# go.opencensus.io v0.22.4
+# go.opencensus.io v0.23.0
 ## explicit; go 1.13
 go.opencensus.io
 go.opencensus.io/internal
@@ -206,7 +204,7 @@ go.opencensus.io/trace
 go.opencensus.io/trace/internal
 go.opencensus.io/trace/propagation
 go.opencensus.io/trace/tracestate
-# golang.org/x/net v0.0.0-20211216030914-fe4d6282115f
+# golang.org/x/net v0.0.0-20220127200216-cd36cc0744dd
 ## explicit; go 1.17
 golang.org/x/net/http/httpguts
 golang.org/x/net/http2
@@ -233,7 +231,7 @@ golang.org/x/text/secure/bidirule
 golang.org/x/text/transform
 golang.org/x/text/unicode/bidi
 golang.org/x/text/unicode/norm
-# google.golang.org/genproto v0.0.0-20211208223120-3a66f561d7aa => google.golang.org/genproto v0.0.0-20200224152610-e50cd9704f63
+# google.golang.org/genproto v0.0.0-20220107163113-42d7afdf6368 => google.golang.org/genproto v0.0.0-20200224152610-e50cd9704f63
 ## explicit; go 1.11
 google.golang.org/genproto/googleapis/rpc/status
 # google.golang.org/grpc v1.43.0
@@ -315,5 +313,5 @@ google.golang.org/protobuf/types/descriptorpb
 google.golang.org/protobuf/types/known/anypb
 google.golang.org/protobuf/types/known/durationpb
 google.golang.org/protobuf/types/known/timestamppb
-# github.com/containerd/containerd => github.com/ambarve/containerd v1.5.1-0.20220401234948-5d9ff4a8721f
+# github.com/containerd/containerd => ../containerd
 # google.golang.org/genproto => google.golang.org/genproto v0.0.0-20200224152610-e50cd9704f63
