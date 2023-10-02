@@ -56,12 +56,6 @@ type UtilityVM struct {
 	protocol  uint32
 	guestCaps schema1.GuestDefinedCapabilities
 
-	// containerCounter is the current number of containers that have been
-	// created. This is never decremented in the life of the UVM.
-	//
-	// NOTE: All accesses to this MUST be done atomically.
-	containerCounter uint64
-
 	// noWritableFileShares disables mounting any writable vSMB or Plan9 shares
 	// on the uVM. This prevents containers in the uVM modifying files and directories
 	// made available via the "mounts" options in the container spec, or shared
@@ -115,11 +109,6 @@ type UtilityVM struct {
 	// We only need to look up the vmmem process once, then we keep a handle
 	// open.
 	vmmemOnce sync.Once
-
-	// mountCounter is the number of mounts that have been added to the UVM
-	// This is used in generating a unique mount path inside the UVM for every mount.
-	// Access to this variable should be done atomically.
-	mountCounter uint64
 
 	// Location that container process dumps will get written too.
 	processDumpLocation string

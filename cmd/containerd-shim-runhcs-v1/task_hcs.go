@@ -32,6 +32,7 @@ import (
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"github.com/Microsoft/hcsshim/internal/hcsoci"
 	"github.com/Microsoft/hcsshim/internal/jobcontainers"
+	"github.com/Microsoft/hcsshim/internal/layers"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/memory"
 	"github.com/Microsoft/hcsshim/internal/oc"
@@ -149,17 +150,20 @@ func createContainer(
 			HostingSystem:    parent,
 			NetworkNamespace: netNS,
 		}
-		if s.Linux != nil {
-			var layerFolders []string
-			if s.Windows != nil {
-				layerFolders = s.Windows.LayerFolders
-			}
-			lcowLayers, err := getLCOWLayers(rootfs, layerFolders)
-			if err != nil {
-				return nil, nil, err
-			}
-			opts.LCOWLayers = lcowLayers
+		var layerFolders []string
+		if s.Windows != nil {
+			layerFolders = s.Windows.LayerFolders
 		}
+
+		if s.Linux != nil {
+			opts.LCOWLayerManager, err = layers.NewLCOWLayerManager(id, rootfs, layerFolders, parent)
+		} else {
+			opts.WCOWLayerManager, err = layers.NewWCOWLayerManager(id, rootfs, layerFolders, parent, "")
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+
 		if shimOpts != nil {
 			opts.ScaleCPULimitsToSandbox = shimOpts.ScaleCpuLimitsToSandbox
 		}

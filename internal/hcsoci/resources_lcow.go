@@ -27,33 +27,17 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, r *
 	if coi.Spec.Root == nil {
 		coi.Spec.Root = &specs.Root{}
 	}
-	containerRootInUVM := r.ContainerRootInUVM()
-	if coi.LCOWLayers != nil {
-		log.G(ctx).Debug("hcsshim::allocateLinuxResources mounting storage")
-		rootPath, scratchPath, closer, err := layers.MountLCOWLayers(ctx, coi.actualID, coi.LCOWLayers, containerRootInUVM, coi.HostingSystem)
-		if err != nil {
-			return errors.Wrap(err, "failed to mount container storage")
-		}
-		coi.Spec.Root.Path = rootPath
-		// If this is the pause container in a hypervisor-isolated pod, we can skip cleanup of
-		// layers, as that happens automatically when the UVM is terminated.
-		if !isSandbox || coi.HostingSystem == nil {
-			r.SetLayers(closer)
-		}
-		r.SetLcowScratchPath(scratchPath)
-	} else if coi.Spec.Root.Path != "" {
-		// This is the "Plan 9" root filesystem.
-		// TODO: We need a test for this. Ask @jstarks how you can even lay this out on Windows.
-		hostPath := coi.Spec.Root.Path
-		uvmPathForContainersFileSystem := path.Join(r.ContainerRootInUVM(), guestpath.RootfsPath)
-		share, err := coi.HostingSystem.AddPlan9(ctx, hostPath, uvmPathForContainersFileSystem, coi.Spec.Root.Readonly, false, nil)
-		if err != nil {
-			return errors.Wrap(err, "adding plan9 root")
-		}
-		coi.Spec.Root.Path = uvmPathForContainersFileSystem
-		r.Add(share)
-	} else {
-		return errors.New("must provide either Windows.LayerFolders or Root.Path")
+
+	log.G(ctx).Debug("hcsshim::allocateLinuxResources mounting storage")
+	rootPath, err := coi.LCOWLayerManager.Mount(ctx)
+	if err != nil {
+		return errors.Wrap(err, "failed to mount container storage")
+	}
+	coi.Spec.Root.Path = rootPath
+	// If this is the pause container in a hypervisor-isolated pod, we can skip cleanup of
+	// layers, as that happens automatically when the UVM is terminated.
+	if !isSandbox || coi.HostingSystem == nil {
+		r.SetLayers(coi.LCOWLayerManager)
 	}
 
 	for i, mount := range coi.Spec.Mounts {
@@ -71,7 +55,7 @@ func allocateLinuxResources(ctx context.Context, coi *createOptionsInternal, r *
 
 		if coi.HostingSystem != nil {
 			hostPath := mount.Source
-			uvmPathForShare := path.Join(containerRootInUVM, fmt.Sprintf(guestpath.LCOWMountPathPrefixFmt, i))
+			uvmPathForShare := path.Join(coi.LCOWLayerManager.ContainerRoot(), fmt.Sprintf(guestpath.LCOWMountPathPrefixFmt, i))
 			uvmPathForFile := uvmPathForShare
 
 			readOnly := false

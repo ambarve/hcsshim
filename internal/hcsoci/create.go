@@ -26,11 +26,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-var (
-	lcowRootInUVM = guestpath.LCOWRootPrefixInUVM + "/%s"
-	wcowRootInUVM = guestpath.WCOWRootPrefixInUVM + "/%s"
-)
-
 // CreateOptions are the set of fields used to call CreateContainer().
 // Note: In the spec, the LayerFolders must be arranged in the same way in which
 // moby configures them: layern, layern-1,...,layer2,layer1,scratch
@@ -44,7 +39,8 @@ type CreateOptions struct {
 	SchemaVersion    *hcsschema.Version // Requested Schema Version. Defaults to v2 for RS5, v1 for RS1..RS4
 	HostingSystem    *uvm.UtilityVM     // Utility or service VM in which the container is to be created.
 	NetworkNamespace string             // Host network namespace to use (overrides anything in the spec)
-	LCOWLayers       *layers.LCOWLayers
+	LCOWLayerManager *layers.LCOWLayerManager
+	WCOWLayerManager layers.WCOWLayerManager
 
 	// This is an advanced debugging parameter. It allows for diagnosability by leaving a containers
 	// resources allocated in case of a failure. Thus you would be able to use tools such as hcsdiag
@@ -187,12 +183,6 @@ func CreateContainer(ctx context.Context, createOptions *CreateOptions) (_ cow.C
 	}()
 
 	if coi.HostingSystem != nil {
-		if coi.Spec.Linux != nil {
-			r.SetContainerRootInUVM(fmt.Sprintf(lcowRootInUVM, coi.ID))
-		} else {
-			n := coi.HostingSystem.ContainerCounter()
-			r.SetContainerRootInUVM(fmt.Sprintf(wcowRootInUVM, strconv.FormatUint(n, 16)))
-		}
 		// install kernel drivers if necessary.
 		// do this before network setup in case any of the drivers requested are
 		// network drivers
