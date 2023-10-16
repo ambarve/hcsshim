@@ -61,4 +61,6 @@ type FilesystemHeader struct {
 	Reserved         uint32
 	Reserved1        uint16
 	ParentCount      uint16
+	// size of the ParentRegionSets will be equal to ParentCount
+	ParentRegionSets []RegionSet
 }
