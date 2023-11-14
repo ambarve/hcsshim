@@ -31,6 +31,12 @@ func enableCimBoot(hivePath string) (err error) {
 		return fmt.Errorf("failed to encode boot guid to utf16: %w", err)
 	}
 
+	// Path of the UVM files relatives to the cim root
+	uvmFilesCimRelativePath, err := windows.UTF16FromString("UtilityVM\\Files\\")
+	if err != nil {
+		return fmt.Errorf("failed to encode uvm files relative path to utf16: %w", err)
+	}
+
 	overrideBootPath, err := windows.UTF16FromString("\\Windows\\")
 	if err != nil {
 		return fmt.Errorf("failed to encode override boot path to utf16: %w", err)
@@ -45,8 +51,18 @@ func enableCimBoot(hivePath string) (err error) {
 	}{
 		{"ControlSet001\\Control", "BootContainerGuid", winapi.REG_TYPE_SZ, (*byte)(unsafe.Pointer(&bootGUID[0])), 2 * uint32(len(bootGUID))},
 		{"ControlSet001\\Services\\UnionFS", "Start", winapi.REG_TYPE_DWORD, &dataZero[0], uint32(len(dataZero))},
-		{"ControlSet001\\Services\\wcifs", "Start", winapi.REG_TYPE_DWORD, &dataFour[0], uint32(len(dataZero))},
-		// The bootmgr loads the uvm files from the cim and so uses the relative path `UtilityVM\\Files` inside the cim to access the uvm files. However, once the cim is mounted UnionFS will merge the correct directory (UtilityVM\\Files) of the cim with the scratch and then that point onwards we don't need to use the relative path. Below registry key tells the kernel that the boot path that was provided in BCD should now be overriden with this new path.
+		{"ControlSet001\\Services\\wcifs", "Start", winapi.REG_TYPE_DWORD, &dataFour[0], uint32(len(dataFour))},
+		// A cim that is shared inside the uvm includes files for both the uvm and the
+		// containers. All the files for the uvm are kept inside the `UtilityVM\Files`
+		// directory so below registry key specifies the name of this directory inside the cim
+		// which contains all the uvm related files.
+		{"ControlSet001\\Control\\HVSI", "UvmLayerRelativePath", winapi.REG_TYPE_SZ, (*byte)(unsafe.Pointer(&uvmFilesCimRelativePath[0])), 2 * uint32(len(uvmFilesCimRelativePath))},
+		// The bootmgr loads the uvm files from the cim and so uses the relative path
+		// `UtilityVM\\Files` inside the cim to access the uvm files. However, once the cim is
+		// mounted UnionFS will merge the correct directory (UtilityVM\\Files) of the cim with
+		// the scratch and then that point onwards we don't need to use the relative
+		// path. Below registry key tells the kernel that the boot path that was provided in
+		// BCD should now be overriden with this new path.
 		{"Setup", "BootPathOverride", winapi.REG_TYPE_SZ, (*byte)(unsafe.Pointer(&overrideBootPath[0])), 2 * uint32(len(overrideBootPath))},
 	}
 

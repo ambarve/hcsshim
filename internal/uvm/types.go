@@ -142,6 +142,10 @@ type UtilityVM struct {
 
 	// confidentialUVMOptions hold confidential UVM specific options
 	confidentialUVMOptions *ConfidentialOptions
+
+	// cim layers which are mounted inside this uvm.
+	cimMounts       map[string]*cimInfo
+	cimMountMapLock sync.Mutex
 }
 
 func (uvm *UtilityVM) ScratchEncryptionEnabled() bool {

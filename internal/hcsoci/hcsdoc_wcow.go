@@ -335,11 +335,11 @@ func createWindowsContainerDocument(ctx context.Context, coi *createOptionsInter
 		// Hosting system was supplied, so is v2 Xenon.
 		v2Container.Storage.Path = coi.Spec.Root.Path
 		if coi.HostingSystem.OS() == "windows" {
-			layers, err := layers.GetHCSLayers(ctx, coi.HostingSystem, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1])
+			mountedLayers, err := layers.ToIsolatedHcsSchemaLayers(ctx, coi.HostingSystem, coi.Spec.Windows.LayerFolders[:len(coi.Spec.Windows.LayerFolders)-1])
 			if err != nil {
 				return nil, nil, err
 			}
-			v2Container.Storage.Layers = layers
+			v2Container.Storage.Layers = mountedLayers
 		}
 	}
 

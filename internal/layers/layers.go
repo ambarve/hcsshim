@@ -398,12 +398,17 @@ func mountWCOWHostLayers(ctx context.Context, layerFolders []string, containerID
 type wcowIsolatedLayersCloser struct {
 	uvm                     *uvm.UtilityVM
 	guestCombinedLayersPath string
+	layerFolders            []string
 	scratchMount            resources.ResourceCloser
 	layerClosers            []resources.ResourceCloser
 }
 
 func (lc *wcowIsolatedLayersCloser) Release(ctx context.Context) (retErr error) {
-	if err := lc.uvm.RemoveCombinedLayersWCOW(ctx, lc.guestCombinedLayersPath); err != nil {
+	filterType := hcsschema.WCIFS
+	if cimlayer.IsCimLayer(lc.layerFolders[0]) {
+		filterType = hcsschema.UnionFS
+	}
+	if err := lc.uvm.RemoveCombinedLayersWCOW(ctx, lc.guestCombinedLayersPath, filterType); err != nil {
 		log.G(ctx).WithError(err).Error("failed RemoveCombinedLayersWCOW")
 		if retErr == nil { //nolint:govet // nilness: consistency with below
 			retErr = fmt.Errorf("first error: %w", err)
@@ -415,6 +420,7 @@ func (lc *wcowIsolatedLayersCloser) Release(ctx context.Context) (retErr error) 
 			retErr = fmt.Errorf("first error: %w", err)
 		}
 	}
+
 	for i, closer := range lc.layerClosers {
 		if err := closer.Release(ctx); err != nil {
 			log.G(ctx).WithFields(logrus.Fields{
@@ -429,12 +435,108 @@ func (lc *wcowIsolatedLayersCloser) Release(ctx context.Context) (retErr error) 
 	return
 }
 
+// mountWCOWIsolatedLegacyLayers is expected to mount the read only layers on the uvm and return an array of
+// hcsschema.Layer types that represented the read-only layer already mounted to the uvm. This array is then
+// used in the combine layers call to combine the read only layer with the scratch layer. This function should
+// also return the layer closers to properly cleanup the layers
+func mountWCOWIsolatedLegacyLayers(ctx context.Context, roLayers []string, vm *uvm.UtilityVM) (_ []hcsschema.Layer, _ []resources.ResourceCloser, err error) {
+	// share each layer over VSMB
+	layerClosers := []resources.ResourceCloser{}
+	for _, layerPath := range roLayers {
+		log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
+		options := vm.DefaultVSMBOptions(true)
+		options.TakeBackupPrivilege = true
+		mount, err := vm.AddVSMB(ctx, layerPath, options)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to add VSMB layer: %s", err)
+		}
+		layerClosers = append(layerClosers, mount)
+	}
+
+	// Load the filter at the C:\s<ID> location calculated above. We pass into this
+	// request each of the read-only layer folders.
+	mountedLayers, err := ToIsolatedHcsSchemaLayers(ctx, vm, roLayers)
+	if err != nil {
+		return nil, nil, err
+	}
+	return mountedLayers, layerClosers, nil
+}
+
+// same as that of mountWCOWIsolatedLegacyLayers but works for cimfs layers.
+func mountWCOWIsolatedCimFSLayers(ctx context.Context, roLayers []string, vm *uvm.UtilityVM) (_ []hcsschema.Layer, _ []resources.ResourceCloser, err error) {
+	if !cimlayer.IsCimLayer(roLayers[0]) {
+		return nil, nil, fmt.Errorf("mount cim layer requested for non-cim layer: %s", roLayers[0])
+	}
+	// add the directory that contains the cim files (i.e the cim-layers directory) into the uvm over
+	// VSMB, then mount the cim from that directory inside the uvm
+	cimPath := cimlayer.GetCimPathFromLayer(roLayers[0])
+	options := vm.DefaultVSMBOptions(true)
+	// Mounting cim inside uvm needs direct map.
+	options.NoDirectmap = false
+	// Always add the cim-layers directory as a vsmb mount because there are region files in that
+	// directory that also should be shared in the uvm.
+	hostCimDir := filepath.Dir(cimPath)
+	// Add the VSMB share
+	vsmbShare, err := vm.AddVSMB(ctx, hostCimDir, options)
+	if err != nil {
+		return nil, nil, fmt.Errorf("share cim files over vsmb: %s", err)
+	}
+	defer func() {
+		if err != nil {
+			remErr := vm.RemoveVSMB(ctx, hostCimDir, true)
+			if remErr != nil {
+				log.G(ctx).WithFields(logrus.Fields{
+					"host path": hostCimDir,
+					"error":     remErr,
+				}).Warn("failed to remove VSMB share")
+			}
+		}
+	}()
+
+	uvmCimDir, err := vm.GetVSMBUvmPath(ctx, hostCimDir, true)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get vsmb uvm path: %s", err)
+	}
+
+	_, err = vm.MountInUVM(ctx, filepath.Join(uvmCimDir, filepath.Base(cimPath)))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() {
+		if err != nil {
+			uErr := vm.UnmountFromUVM(ctx, filepath.Join(uvmCimDir, filepath.Base(cimPath)))
+			if uErr != nil {
+				log.G(ctx).WithFields(logrus.Fields{
+					"uvm cim path": filepath.Join(uvmCimDir, filepath.Base(cimPath)),
+					"error":        uErr,
+				}).Warn("failed to unmount cim from uvm")
+			}
+		}
+	}()
+
+	mountedLayers, err := ToIsolatedHcsSchemaLayers(ctx, vm, roLayers)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	closer := func(ctx context.Context) error {
+		// unmount the cim
+		if uErr := vm.UnmountFromUVM(ctx, filepath.Join(uvmCimDir, filepath.Base(cimPath))); uErr != nil {
+			return uErr
+		}
+		// remove vsmb
+		return vsmbShare.Release(ctx)
+	}
+
+	return mountedLayers, []resources.ResourceCloser{resources.ResourceCloserFunc(closer)}, nil
+}
+
 func mountWCOWIsolatedLayers(ctx context.Context, containerID string, layerFolders []string, volumeMountPath string, vm *uvm.UtilityVM) (_ string, _ resources.ResourceCloser, err error) {
 	log.G(ctx).WithField("os", vm.OS()).Debug("hcsshim::MountWCOWLayers V2 UVM")
 
 	var (
-		layersAdded  []string
-		layerClosers []resources.ResourceCloser
+		layerClosers  []resources.ResourceCloser
+		mountedLayers []hcsschema.Layer
 	)
 	defer func() {
 		if err != nil {
@@ -446,16 +548,17 @@ func mountWCOWIsolatedLayers(ctx context.Context, containerID string, layerFolde
 		}
 	}()
 
-	for _, layerPath := range layerFolders[:len(layerFolders)-1] {
-		log.G(ctx).WithField("layerPath", layerPath).Debug("mounting layer")
-		options := vm.DefaultVSMBOptions(true)
-		options.TakeBackupPrivilege = true
-		mount, err := vm.AddVSMB(ctx, layerPath, options)
-		if err != nil {
-			return "", nil, fmt.Errorf("failed to add VSMB layer: %s", err)
-		}
-		layersAdded = append(layersAdded, layerPath)
-		layerClosers = append(layerClosers, mount)
+	roLayers := layerFolders[:len(layerFolders)-1]
+	var filterType hcsschema.FileSystemFilterType
+	if cimlayer.IsCimLayer(layerFolders[0]) {
+		filterType = hcsschema.UnionFS
+		mountedLayers, layerClosers, err = mountWCOWIsolatedCimFSLayers(ctx, roLayers, vm)
+	} else {
+		filterType = hcsschema.WCIFS
+		mountedLayers, layerClosers, err = mountWCOWIsolatedLegacyLayers(ctx, roLayers, vm)
+	}
+	if err != nil {
+		return "", nil, err
 	}
 
 	hostPath, err := getScratchVHDPath(layerFolders)
@@ -478,14 +581,7 @@ func mountWCOWIsolatedLayers(ctx context.Context, containerID string, layerFolde
 		}
 	}()
 
-	// Load the filter at the C:\s<ID> location calculated above. We pass into this
-	// request each of the read-only layer folders.
-	var layers []hcsschema.Layer
-	layers, err = GetHCSLayers(ctx, vm, layersAdded)
-	if err != nil {
-		return "", nil, err
-	}
-	err = vm.CombineLayersWCOW(ctx, layers, containerScratchPathInUVM)
+	err = vm.CombineLayersWCOW(ctx, mountedLayers, containerScratchPathInUVM, filterType)
 	if err != nil {
 		return "", nil, err
 	}
@@ -539,9 +635,13 @@ func addLCOWLayer(ctx context.Context, vm *uvm.UtilityVM, layer *LCOWLayer) (uvm
 	return sm.GuestPath(), sm, nil
 }
 
-// GetHCSLayers converts host paths corresponding to container layers into HCS schema V2 layers
-func GetHCSLayers(ctx context.Context, vm *uvm.UtilityVM, paths []string) (layers []hcsschema.Layer, err error) {
-	for _, path := range paths {
+// ToIsolatedHcsSchemaLayers converts layers paths for Xenon into HCS schema V2 layers
+func ToIsolatedHcsSchemaLayers(ctx context.Context, vm *uvm.UtilityVM, roLayers []string) ([]hcsschema.Layer, error) {
+	if cimlayer.IsCimLayer(roLayers[0]) {
+		return cimLayersToIsolatedHcsSchemaLayers(ctx, vm, roLayers)
+	}
+	layers := []hcsschema.Layer{}
+	for _, path := range roLayers {
 		uvmPath, err := vm.GetVSMBUvmPath(ctx, path, true)
 		if err != nil {
 			return nil, err
@@ -590,6 +690,31 @@ func cimLayersToHostHcsSchemaLayers(ctx context.Context, containerID string, pat
 	return []hcsschema.Layer{{Id: layerID.String(), Path: volume}}, nil
 
 }
+
+// cimLayersToIsolatedHcsSchemaLayers converts given cimfs Xenon layers to HCS schema V2 layers.
+func cimLayersToIsolatedHcsSchemaLayers(ctx context.Context, vm *uvm.UtilityVM, paths []string) ([]hcsschema.Layer, error) {
+	// Only convert the top most layer
+	topMostLayer := paths[0]
+	cimPath := cimlayer.GetCimPathFromLayer(topMostLayer)
+	uvmCimDir, err := vm.GetVSMBUvmPath(ctx, filepath.Dir(cimPath), true)
+	if err != nil {
+		return nil, fmt.Errorf("get vsmb uvm path for %s: %s", filepath.Dir(cimPath), err)
+	}
+	uvmPath, err := vm.GetCimUvmMountPath(filepath.Join(uvmCimDir, filepath.Base(cimPath)))
+	if err != nil {
+		return nil, fmt.Errorf("get mounted cim path inside uvm: %s", err)
+	}
+	// Use the cim path for GUID rather than the mounted volume path, so that the
+	// generated layerID remains same for same layer cim even if it is mounted multiple
+	// times.
+	layerID, err := wclayer.LayerID(ctx, topMostLayer)
+	if err != nil {
+		return nil, err
+	}
+	// DON'T append `Files` to the mounted volume path here because that is handled automatically.
+	return []hcsschema.Layer{{Path: uvmPath, Id: layerID.String()}}, nil
+}
+
 func getScratchVHDPath(layerFolders []string) (string, error) {
 	hostPath := filepath.Join(layerFolders[len(layerFolders)-1], "sandbox.vhdx")
 	// For LCOW, we can reuse another container's scratch space (usually the sandbox container's).

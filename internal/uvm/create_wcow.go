@@ -25,6 +25,7 @@ import (
 	"github.com/Microsoft/hcsshim/internal/uvm/scsi"
 	"github.com/Microsoft/hcsshim/internal/uvmfolder"
 	"github.com/Microsoft/hcsshim/internal/wclayer"
+	cimlayer "github.com/Microsoft/hcsshim/internal/wclayer/cim"
 	"github.com/Microsoft/hcsshim/internal/wcow"
 	"github.com/Microsoft/hcsshim/osversion"
 )
@@ -89,15 +90,40 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 	// UVM rootfs share is readonly.
 	vsmbOpts := uvm.DefaultVSMBOptions(true)
 	vsmbOpts.TakeBackupPrivilege = true
+	osSmbShare := hcsschema.VirtualSmbShare{
+		Name:    "os",
+		Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
+		Options: vsmbOpts,
+	}
+
+	bootEntry := &hcsschema.UefiBootEntry{
+		DevicePath: `\EFI\Microsoft\Boot\bootmgfw.efi`,
+		DeviceType: "VmbFs",
+	}
+
+	if cimlayer.IsCimLayer(opts.LayerFolders[0]) {
+		// The directory that contains the cim-layers directory AND the uvmFolder (i.e the snapshot
+		// directory for scratch layer of this uvm) directory must be shared inside the guest as "os"
+		// share.
+		// TODO(ambarve): We are sharing the entire `snapshosts` directory inside the uvm here, but
+		// really we only want the UVM to be able to access the `uvmFolder` and the `cim-layers`
+		// directories. Currently, there is no way to only allow certain directories via VSMB (you
+		// need to list out each individual file) - find a better way.
+		osSmbShare.Path = filepath.Dir(uvmFolder)
+		// TODO(ambarve): Will this work without direct map?
+		osSmbShare.Options.NoDirectmap = false
+		bootEntry.DevicePath = filepath.Join(string(os.PathSeparator), filepath.Base(uvmFolder), wclayer.BootMgrFilePath)
+	}
+
 	virtualSMB := &hcsschema.VirtualSmb{
-		DirectFileMappingInMB: 1024, // Sensible default, but could be a tuning parameter somewhere
-		Shares: []hcsschema.VirtualSmbShare{
-			{
-				Name:    "os",
-				Path:    filepath.Join(uvmFolder, `UtilityVM\Files`),
-				Options: vsmbOpts,
-			},
-		},
+		// When using cimfs the value of `DirectFileMappingInMB` needs to be
+		// big enough to hold the layer files. Assuming that no image will have
+		// layer files with size more than 32GB we set this value to 32GB for
+		// now. Note, that this only occupies the virtual address space and not
+		// the physical memory used by the UVM hence setting a high value
+		// shouldn't affect existing workflows.
+		DirectFileMappingInMB: 32768,
+		Shares:                []hcsschema.VirtualSmbShare{osSmbShare},
 	}
 
 	var registryChanges hcsschema.RegistryChanges
@@ -173,10 +199,7 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 			StopOnReset: true,
 			Chipset: &hcsschema.Chipset{
 				Uefi: &hcsschema.Uefi{
-					BootThis: &hcsschema.UefiBootEntry{
-						DevicePath: `\EFI\Microsoft\Boot\bootmgfw.efi`,
-						DeviceType: "VmbFs",
-					},
+					BootThis: bootEntry,
 				},
 			},
 			RegistryChanges: &registryChanges,
@@ -202,6 +225,11 @@ func prepareConfigDoc(ctx context.Context, uvm *UtilityVM, opts *OptionsWCOW, uv
 					},
 				},
 				VirtualSmb: virtualSMB,
+				ComPorts: map[string]hcsschema.ComPort{
+					"0": {
+						NamedPipe: "\\\\.\\pipe\\debugpipe",
+					},
+				},
 			},
 		},
 	}
@@ -268,6 +296,7 @@ func CreateWCOW(ctx context.Context, opts *OptionsWCOW) (_ *UtilityVM, err error
 		vsmbNoDirectMap:         opts.NoDirectMap,
 		noWritableFileShares:    opts.NoWritableFileShares,
 		createOpts:              *opts,
+		cimMounts:               make(map[string]*cimInfo),
 	}
 
 	defer func() {

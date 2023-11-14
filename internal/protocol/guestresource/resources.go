@@ -46,6 +46,8 @@ const (
 	ResourceTypeSecurityPolicy guestrequest.ResourceType = "SecurityPolicy"
 	// ResourceTypePolicyFragment is the modify resource type for injecting policy fragments.
 	ResourceTypePolicyFragment guestrequest.ResourceType = "SecurityPolicyFragment"
+	// ResourceTypeCimMount is the modify resource type for mounting a cim inside the UVM.
+	ResourceTypeCimMount guestrequest.ResourceType = "CimMount"
 )
 
 // This class is used by a modify request to add or remove a combined layers
@@ -62,9 +64,10 @@ type LCOWCombinedLayers struct {
 }
 
 type WCOWCombinedLayers struct {
-	ContainerRootPath string            `json:"ContainerRootPath,omitempty"`
-	Layers            []hcsschema.Layer `json:"Layers,omitempty"`
-	ScratchPath       string            `json:"ScratchPath,omitempty"`
+	ContainerRootPath string                         `json:"ContainerRootPath,omitempty"`
+	Layers            []hcsschema.Layer              `json:"Layers,omitempty"`
+	ScratchPath       string                         `json:"ScratchPath,omitempty"`
+	FilterType        hcsschema.FileSystemFilterType `json:"FilterType,omitempty"`
 }
 
 // Defines the schema for hosted settings passed to GCS and/or OpenGCS
