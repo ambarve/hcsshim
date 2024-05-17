@@ -5,18 +5,19 @@ package cimfs
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
+	"syscall"
 
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/Microsoft/go-winio"
+	winio "github.com/Microsoft/go-winio"
 	"github.com/Microsoft/go-winio/pkg/guid"
+	vhd "github.com/Microsoft/go-winio/vhd"
 	hcsschema "github.com/Microsoft/hcsshim/internal/hcs/schema2"
 	"golang.org/x/sys/windows"
 )
@@ -27,6 +28,30 @@ type tuple struct {
 	filepath     string
 	fileContents []byte
 	isDir        bool
+}
+
+// a  test interface for representing both forked & block CIMs
+type testCIM interface {
+	// returns a full CIM path
+	cimPath() string
+}
+
+type testForkedCIM struct {
+	imageDir   string
+	parentName string
+	imageName  string
+}
+
+func (t *testForkedCIM) cimPath() string {
+	return filepath.Join(t.imageDir, t.imageName)
+}
+
+type testBlockCIM struct {
+	BlockCIM
+}
+
+func (t *testBlockCIM) cimPath() string {
+	return filepath.Join(t.BlockPath, t.CimName)
 }
 
 // A utility function to create a file/directory and write data to it in the given cim.
@@ -60,6 +85,97 @@ func createCimFileUtil(c *CimFsWriter, fileTuple tuple) error {
 	return nil
 }
 
+// openNewCIM creates a new CIM and returns a writer to that CIM.  The caller MUST close
+// the writer.
+func openNewCIM(t *testing.T, newCIM testCIM) *CimFsWriter {
+	t.Helper()
+
+	var (
+		writer *CimFsWriter
+		err    error
+	)
+
+	switch val := newCIM.(type) {
+	case *testForkedCIM:
+		writer, err = Create(val.imageDir, val.parentName, val.imageName)
+	case *testBlockCIM:
+		writer, err = CreateBlockCIM(val.BlockPath, val.CimName, val.Type)
+	}
+	if err != nil {
+		t.Fatalf("failed while creating a cim: %s", err)
+	}
+	t.Cleanup(func() {
+		writer.Close()
+		// add 3 second sleep before test cleanup remove the cim directory
+		// otherwise, that removal fails due to some handles still being open
+		time.Sleep(3 * time.Second)
+	})
+	return writer
+}
+
+// compareContent takes in path to a directory (which is usually a volume at which a CIM is
+// mounted) and ensures that every file/directory in the `testContents` shows up exactly
+// as it is under that directory.
+func compareContent(t *testing.T, root string, testContents []tuple) {
+	t.Helper()
+
+	for _, ft := range testContents {
+		if ft.isDir {
+			_, err := os.Stat(filepath.Join(root, ft.filepath))
+			if err != nil {
+				t.Fatalf("stat directory %s from cim: %s", ft.filepath, err)
+			}
+		} else {
+			f, err := os.Open(filepath.Join(root, ft.filepath))
+			if err != nil {
+				t.Fatalf("open file %s: %s", filepath.Join(root, ft.filepath), err)
+			}
+			defer f.Close()
+
+			fileContents := make([]byte, len(ft.fileContents))
+
+			// it is a file - read contents
+			rc, err := f.Read(fileContents)
+			if err != nil && !errors.Is(err, io.EOF) {
+				t.Fatalf("failure while reading file %s from cim: %s", ft.filepath, err)
+			} else if !bytes.Equal(fileContents[:rc], ft.fileContents) {
+				t.Fatalf("contents of file %s don't match", ft.filepath)
+			}
+		}
+	}
+}
+
+func writeCIM(t *testing.T, writer *CimFsWriter, testContents []tuple) {
+	for _, ft := range testContents {
+		err := createCimFileUtil(writer, ft)
+		if err != nil {
+			t.Fatalf("failed to create the file %s inside the cim:%s", ft.filepath, err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("cim close: %s", err)
+	}
+}
+
+func mountCIM(t *testing.T, testCIM testCIM, mountFlags uint32) string {
+	// mount and read the contents of the cim
+	volumeGUID, err := guid.NewV4()
+	if err != nil {
+		t.Fatalf("generate cim mount GUID: %s", err)
+	}
+
+	mountvol, err := Mount(testCIM.cimPath(), volumeGUID, mountFlags)
+	if err != nil {
+		t.Fatalf("mount cim : %s", err)
+	}
+	t.Cleanup(func() {
+		if err := Unmount(mountvol); err != nil {
+			t.Logf("CIM unmount failed: %s", err)
+		}
+	})
+	return mountvol
+}
+
 // This test creates a cim, writes some files to it and then reads those files back.
 // The cim created by this test has only 3 files in the following tree
 // /
@@ -78,72 +194,287 @@ func TestCimReadWrite(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
+	testCIM := &testForkedCIM{
+		imageDir:   tempDir,
+		parentName: "",
+		imageName:  "test.cim",
+	}
 
-	cimName := "test.cim"
-	cimPath := filepath.Join(tempDir, cimName)
-	c, err := Create(tempDir, "", cimName)
+	writer := openNewCIM(t, testCIM)
+	writeCIM(t, writer, testContents)
+	mountvol := mountCIM(t, testCIM, hcsschema.CimMountFlagCacheFiles)
+	compareContent(t, mountvol, testContents)
+}
+
+func TestBlockCIMInvalidCimName(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	blockPath := "C:\\Windows"
+	cimName := ""
+	_, err := CreateBlockCIM(blockPath, cimName, BlockCIMTypeSingleFile)
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected error `%s`, got `%s`", err, os.ErrInvalid)
+	}
+}
+
+func TestBlockCIMInvalidBlockPath(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	blockPath := ""
+	cimName := "foo.bcim"
+	_, err := CreateBlockCIM(blockPath, cimName, BlockCIMTypeSingleFile)
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected error `%s`, got `%s", os.ErrInvalid, err)
+	}
+}
+
+func TestBlockCIMInvalidType(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	blockPath := ""
+	cimName := "foo.bcim"
+	_, err := CreateBlockCIM(blockPath, cimName, BlockCIMTypeNone)
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected error `%s`, got `%s", os.ErrInvalid, err)
+	}
+}
+
+func TestCIMMergeInvalidType(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	mergedCIM := &BlockCIM{
+		Type:      0,
+		BlockPath: "C:\\fake\\path",
+		CimName:   "fakename.cim",
+	}
+	// doesn't matter what we pass in the source CIM array as long as it has 2+ elements
+	err := MergeBlockCIMs(mergedCIM, []*BlockCIM{mergedCIM, mergedCIM})
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected error `%s`, got `%s", os.ErrInvalid, err)
+	}
+}
+
+func TestCIMMergeInvalidLength(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	mergedCIM := &BlockCIM{
+		Type:      0,
+		BlockPath: "C:\\fake\\path",
+		CimName:   "fakename.cim",
+	}
+	err := MergeBlockCIMs(mergedCIM, []*BlockCIM{mergedCIM})
+	if !errors.Is(err, os.ErrInvalid) {
+		t.Fatalf("expected error `%s`, got `%s", os.ErrInvalid, err)
+	}
+}
+
+func TestBlockCIMEmpty(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	root := t.TempDir()
+	blockPath := filepath.Join(root, "layer.bcim")
+	cimName := "layer.cim"
+	w, err := CreateBlockCIM(blockPath, cimName, BlockCIMTypeSingleFile)
 	if err != nil {
-		t.Fatalf("failed while creating a cim: %s", err)
+		t.Fatalf("unexpected error: %s", err)
 	}
-	defer func() {
-		// destroy cim sometimes fails if tried immediately after accessing & unmounting the cim so
-		// give some time and then remove.
-		time.Sleep(3 * time.Second)
-		if err := DestroyCim(context.Background(), cimPath); err != nil {
-			t.Fatalf("destroy cim failed: %s", err)
-		}
-	}()
-
-	for _, ft := range testContents {
-		err := createCimFileUtil(c, ft)
-		if err != nil {
-			t.Fatalf("failed to create the file %s inside the cim:%s", ft.filepath, err)
-		}
-	}
-	if err := c.Close(); err != nil {
-		t.Fatalf("cim close: %s", err)
-	}
-
-	// mount and read the contents of the cim
-	volumeGUID, err := guid.NewV4()
+	err = w.Close()
 	if err != nil {
-		t.Fatalf("generate cim mount GUID: %s", err)
+		t.Fatalf("unexpected error: %s", err)
+	}
+}
+
+func TestBlockCIMSingleFileReadWrite(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
 	}
 
-	mountvol, err := Mount(cimPath, volumeGUID, hcsschema.CimMountFlagCacheFiles)
+	root := t.TempDir()
+	testCIM := &testBlockCIM{
+		BlockCIM: BlockCIM{
+			Type:      BlockCIMTypeSingleFile,
+			BlockPath: filepath.Join(root, "layer.bcim"),
+			CimName:   "layer.cim",
+		},
+	}
+
+	testContents := []tuple{
+		{"foobar.txt", []byte("foobar test data"), false},
+		{"foo", []byte(""), true},
+		{"foo\\bar.txt", []byte("bar test data"), false},
+	}
+
+	writer := openNewCIM(t, testCIM)
+	writeCIM(t, writer, testContents)
+	mountvol := mountCIM(t, testCIM, hcsschema.CimMountSingleFileCim)
+	compareContent(t, mountvol, testContents)
+}
+
+// creates a block device for storing a blockCIM.  returns a volume path to the block
+// device that can be used for writing the CIM.
+func createBlockDevice(t *testing.T, dir string) string {
+	t.Helper()
+	// create a VHD for storing our block CIM
+	vhdPath := filepath.Join(dir, "layer.vhdx")
+	if err := vhd.CreateVhdx(vhdPath, 1, 1); err != nil {
+		t.Fatalf("failed to create VHD: %s", err)
+	}
+
+	diskHandle, err := vhd.OpenVirtualDisk(vhdPath, vhd.VirtualDiskAccessNone, vhd.OpenVirtualDiskFlagNone)
 	if err != nil {
-		t.Fatalf("mount cim : %s", err)
+		t.Fatalf("failed to open VHD: %s", err)
 	}
-	defer func() {
-		if err := Unmount(mountvol); err != nil {
-			t.Fatalf("unmount failed: %s", err)
+	t.Cleanup(func() {
+		closeErr := syscall.CloseHandle(diskHandle)
+		if closeErr != nil {
+			t.Logf("failed to close VHD handle: %s", closeErr)
 		}
-	}()
+	})
 
-	for _, ft := range testContents {
-		if ft.isDir {
-			_, err := os.Stat(filepath.Join(mountvol, ft.filepath))
+	if err = vhd.AttachVirtualDisk(diskHandle, vhd.AttachVirtualDiskFlagNone, &vhd.AttachVirtualDiskParameters{Version: 2}); err != nil {
+		t.Fatalf("failed to attach VHD: %s", err)
+	}
+	t.Cleanup(func() {
+		detachErr := vhd.DetachVirtualDisk(diskHandle)
+		if detachErr != nil {
+			t.Logf("failed to detach VHD: %s", detachErr)
+		}
+	})
+
+	physicalPath, err := vhd.GetVirtualDiskPhysicalPath(diskHandle)
+	if err != nil {
+		t.Fatalf("failed to get physical path of VHD: %s", err)
+	}
+	return physicalPath
+}
+
+func TestBlockCIMBlockDeviceReadWrite(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("blockCIM not supported on this OS version")
+	}
+
+	root := t.TempDir()
+
+	physicalPath := createBlockDevice(t, root)
+
+	testCIM := &testBlockCIM{
+		BlockCIM: BlockCIM{
+			Type:      BlockCIMTypeDevice,
+			BlockPath: physicalPath,
+			CimName:   "layer.cim",
+		},
+	}
+
+	testContents := []tuple{
+		{"foobar.txt", []byte("foobar test data"), false},
+		{"foo", []byte(""), true},
+		{"foo\\bar.txt", []byte("bar test data"), false},
+	}
+
+	writer := openNewCIM(t, testCIM)
+	writeCIM(t, writer, testContents)
+	mountvol := mountCIM(t, testCIM, hcsschema.CimMountBlockDeviceCim)
+	compareContent(t, mountvol, testContents)
+}
+
+func TestMergedBlockCIMs(rootT *testing.T) {
+	// A slice of 3 slices, 1 slice for contents of each CIM
+	testContents := [][]tuple{
+		{{"foo.txt", []byte("foo1"), false}},
+		{{"bar.txt", []byte("bar"), false}},
+		{{"foo.txt", []byte("foo2"), false}},
+	}
+	// create 3 separate block CIMs
+	nCIMs := len(testContents)
+
+	// test merging for both SingleFile & BlockDevice type of block CIMs
+	type testBlock struct {
+		name               string
+		blockType          BlockCIMType
+		mountFlag          uint32
+		blockPathGenerator func(t *testing.T, dir string) string
+	}
+
+	tests := []testBlock{
+		{
+			name:      "single file",
+			blockType: BlockCIMTypeSingleFile,
+			mountFlag: hcsschema.CimMountSingleFileCim,
+			blockPathGenerator: func(t *testing.T, dir string) string {
+				return filepath.Join(dir, "layer.bcim")
+			},
+		},
+		{
+			name:      "block device",
+			blockType: BlockCIMTypeDevice,
+			mountFlag: hcsschema.CimMountBlockDeviceCim,
+			blockPathGenerator: func(t *testing.T, dir string) string {
+				return createBlockDevice(t, dir)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		rootT.Run(test.name, func(t *testing.T) {
+			testCIMs := make([]testCIM, 0, nCIMs)
+			sourceCIMs := make([]*BlockCIM, 0, nCIMs)
+			for i := 0; i < nCIMs; i++ {
+				root := t.TempDir()
+				blockPath := test.blockPathGenerator(t, root)
+				tc := &testBlockCIM{
+					BlockCIM: BlockCIM{
+						Type:      test.blockType,
+						BlockPath: blockPath,
+						CimName:   "layer.cim",
+					}}
+				writer := openNewCIM(t, tc)
+				writeCIM(t, writer, testContents[i])
+				testCIMs = append(testCIMs, tc)
+				sourceCIMs = append(sourceCIMs, &tc.BlockCIM)
+			}
+
+			mergedBlockPath := test.blockPathGenerator(t, t.TempDir())
+			// prepare a merged CIM
+			mergedCIM := &BlockCIM{
+				Type:      test.blockType,
+				BlockPath: mergedBlockPath,
+				CimName:   "merged.cim",
+			}
+
+			if err := MergeBlockCIMs(mergedCIM, sourceCIMs); err != nil {
+				t.Fatalf("failed to merge block CIMs: %s", err)
+			}
+
+			// mount and read the contents of the cim
+			volumeGUID, err := guid.NewV4()
 			if err != nil {
-				t.Fatalf("stat directory %s from cim: %s", ft.filepath, err)
+				t.Fatalf("generate cim mount GUID: %s", err)
 			}
-		} else {
-			f, err := os.Open(filepath.Join(mountvol, ft.filepath))
+
+			mountvol, err := MountMergedBlockCIMs(mergedCIM, sourceCIMs, test.mountFlag, volumeGUID)
 			if err != nil {
-				t.Fatalf("open file %s: %s", filepath.Join(mountvol, ft.filepath), err)
+				t.Fatalf("failed to mount merged block CIMs: %s\n", err)
 			}
-			defer f.Close()
-
-			fileContents := make([]byte, len(ft.fileContents))
-
-			// it is a file - read contents
-			rc, err := f.Read(fileContents)
-			if err != nil && !errors.Is(err, io.EOF) {
-				t.Fatalf("failure while reading file %s from cim: %s", ft.filepath, err)
-			} else if rc != len(ft.fileContents) {
-				t.Fatalf("couldn't read complete file contents for file: %s, read %d bytes, expected: %d", ft.filepath, rc, len(ft.fileContents))
-			} else if !bytes.Equal(fileContents[:rc], ft.fileContents) {
-				t.Fatalf("contents of file %s don't match", ft.filepath)
-			}
-		}
+			defer func() {
+				if err := Unmount(mountvol); err != nil {
+					t.Logf("CIM unmount failed: %s", err)
+				}
+			}()
+			// since we are merging, only 1 foo.txt (from the 1st CIM) should
+			// show up
+			compareContent(t, mountvol, []tuple{testContents[0][0], testContents[1][0]})
+		})
 	}
 }
