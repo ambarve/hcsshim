@@ -53,6 +53,8 @@ var (
 	procCM_Get_Device_ID_ListA                 = modcfgmgr32.NewProc("CM_Get_Device_ID_ListA")
 	procCM_Get_Device_ID_List_SizeA            = modcfgmgr32.NewProc("CM_Get_Device_ID_List_SizeA")
 	procCM_Locate_DevNodeW                     = modcfgmgr32.NewProc("CM_Locate_DevNodeW")
+	procCimAddFsToMergedImage                  = modcimfs.NewProc("CimAddFsToMergedImage")
+	procCimAddFsToMergedImage2                 = modcimfs.NewProc("CimAddFsToMergedImage2")
 	procCimCloseImage                          = modcimfs.NewProc("CimCloseImage")
 	procCimCloseStream                         = modcimfs.NewProc("CimCloseStream")
 	procCimCommitImage                         = modcimfs.NewProc("CimCommitImage")
@@ -60,8 +62,10 @@ var (
 	procCimCreateFile                          = modcimfs.NewProc("CimCreateFile")
 	procCimCreateHardLink                      = modcimfs.NewProc("CimCreateHardLink")
 	procCimCreateImage                         = modcimfs.NewProc("CimCreateImage")
+	procCimCreateImage2                        = modcimfs.NewProc("CimCreateImage2")
 	procCimDeletePath                          = modcimfs.NewProc("CimDeletePath")
 	procCimDismountImage                       = modcimfs.NewProc("CimDismountImage")
+	procCimMergeMountImage                     = modcimfs.NewProc("CimMergeMountImage")
 	procCimMountImage                          = modcimfs.NewProc("CimMountImage")
 	procCimWriteStream                         = modcimfs.NewProc("CimWriteStream")
 	procSetJobCompartmentId                    = modiphlpapi.NewProc("SetJobCompartmentId")
@@ -181,11 +185,55 @@ func _CMLocateDevNode(pdnDevInst *uint32, pDeviceID *uint16, uFlags uint32) (hr 
 	return
 }
 
-func CimCloseImage(cimFSHandle FsHandle) (err error) {
-	err = procCimCloseImage.Find()
-	if err != nil {
+func CimAddFsToMergedImage(cimFSHandle FsHandle, path string) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
 		return
 	}
+	return _CimAddFsToMergedImage(cimFSHandle, _p0)
+}
+
+func _CimAddFsToMergedImage(cimFSHandle FsHandle, path *uint16) (hr error) {
+	hr = procCimAddFsToMergedImage.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimAddFsToMergedImage.Addr(), uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimAddFsToMergedImage2(cimFSHandle FsHandle, path string, flags uint32) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(path)
+	if hr != nil {
+		return
+	}
+	return _CimAddFsToMergedImage2(cimFSHandle, _p0, flags)
+}
+
+func _CimAddFsToMergedImage2(cimFSHandle FsHandle, path *uint16, flags uint32) (hr error) {
+	hr = procCimAddFsToMergedImage2.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimAddFsToMergedImage2.Addr(), uintptr(cimFSHandle), uintptr(unsafe.Pointer(path)), uintptr(flags))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimCloseImage(cimFSHandle FsHandle) {
 	syscall.SyscallN(procCimCloseImage.Addr(), uintptr(cimFSHandle))
 	return
 }
@@ -321,6 +369,30 @@ func _CimCreateImage(imagePath *uint16, oldFSName *uint16, newFSName *uint16, ci
 	return
 }
 
+func CimCreateImage2(imagePath string, flags uint32, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	return _CimCreateImage2(_p0, flags, oldFSName, newFSName, cimFSHandle)
+}
+
+func _CimCreateImage2(imagePath *uint16, flags uint32, oldFSName *uint16, newFSName *uint16, cimFSHandle *FsHandle) (hr error) {
+	hr = procCimCreateImage2.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimCreateImage2.Addr(), uintptr(unsafe.Pointer(imagePath)), uintptr(flags), uintptr(unsafe.Pointer(oldFSName)), uintptr(unsafe.Pointer(newFSName)), uintptr(unsafe.Pointer(cimFSHandle)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
 func CimDeletePath(cimFSHandle FsHandle, path string) (hr error) {
 	var _p0 *uint16
 	_p0, hr = syscall.UTF16PtrFromString(path)
@@ -351,6 +423,21 @@ func CimDismountImage(volumeID *g) (hr error) {
 		return
 	}
 	r0, _, _ := syscall.SyscallN(procCimDismountImage.Addr(), uintptr(unsafe.Pointer(volumeID)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimMergeMountImage(numCimPaths uint32, backingImagePaths *CimFsImagePath, flags uint32, volumeID *g) (hr error) {
+	hr = procCimMergeMountImage.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimMergeMountImage.Addr(), uintptr(numCimPaths), uintptr(unsafe.Pointer(backingImagePaths)), uintptr(flags), uintptr(unsafe.Pointer(volumeID)))
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
 			r0 &= 0xffff

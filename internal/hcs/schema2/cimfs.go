@@ -15,6 +15,18 @@ const (
 	CimMountFlagEnableDax    uint32 = 0x2
 	CimMountFlagCacheFiles   uint32 = 0x4
 	CimMountFlagCacheRegions uint32 = 0x8
+	CimMountBlockDeviceCim   uint32 = 0x10
+	CimMountSingleFileCim    uint32 = 0x20
+
+	CimCreateFlagNone                uint32 = 0x0
+	CimCreateFlagDoNotExpandPEImages uint32 = 0x1
+	CimCreateFlagFixedSizeChunks     uint32 = 0x2
+	CimCreateFlagBlockDeviceCim      uint32 = 0x4
+	CimCreateFlagSingleFileCim       uint32 = 0x8
+
+	CimMergeFlagNone        uint32 = 0x0
+	CimMergeFlagSingleFile  uint32 = 0x1
+	CimMergeFlagBlockDevice uint32 = 0x2
 )
 
 type CimMount struct {
