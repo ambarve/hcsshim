@@ -18,7 +18,9 @@ import (
 	"github.com/Microsoft/go-winio/backuptar"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/wclayer/cim"
+	"github.com/Microsoft/hcsshim/pkg/cimfs"
 	"github.com/Microsoft/hcsshim/pkg/ociwclayer"
+	"github.com/sirupsen/logrus"
 	"golang.org/x/sys/windows"
 )
 
@@ -36,7 +38,7 @@ func ImportCimLayerFromTar(ctx context.Context, r io.Reader, layerPath, cimPath 
 		return 0, err
 	}
 
-	w, err := cim.NewCimLayerWriter(ctx, layerPath, cimPath, parentLayerPaths, parentLayerCimPaths)
+	w, err := cim.NewForkedCimLayerWriter(ctx, layerPath, cimPath, parentLayerPaths, parentLayerCimPaths)
 	if err != nil {
 		return 0, err
 	}
@@ -52,7 +54,35 @@ func ImportCimLayerFromTar(ctx context.Context, r io.Reader, layerPath, cimPath 
 	return n, nil
 }
 
-func writeCimLayerFromTar(ctx context.Context, r io.Reader, w *cim.CimLayerWriter) (int64, error) {
+// ImportSingleFileCimLayerFromTar reads a layer from an OCI layer tar stream and extracts
+// it into the SingleFileCIM format.
+func ImportSingleFileCimLayerFromTar(ctx context.Context, r io.Reader, layer *cimfs.BlockCIM, parentLayers []*cimfs.BlockCIM) (int64, error) {
+	err := os.MkdirAll(filepath.Dir(layer.BlockPath), 0)
+	if err != nil {
+		return 0, err
+	}
+
+	w, err := cim.NewBlockCIMLayerWriter(ctx, layer, parentLayers)
+	if err != nil {
+		return 0, err
+	}
+
+	n, err := writeCimLayerFromTar(ctx, r, w)
+	cerr := w.Close(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if cerr != nil {
+		return 0, cerr
+	}
+	log.G(ctx).WithFields(logrus.Fields{
+		"layer":  layer,
+		"parent": parentLayers,
+	}).Info("layer import complete")
+	return n, nil
+}
+
+func writeCimLayerFromTar(ctx context.Context, r io.Reader, w cim.CIMLayerWriter) (int64, error) {
 	tr := tar.NewReader(r)
 	buf := bufio.NewWriter(w)
 	size := int64(0)
