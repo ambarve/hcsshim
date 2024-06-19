@@ -206,6 +206,9 @@ func (c *CimFsWriter) AddFile(path string, info *winio.FileBasicInfo, fileSize i
 
 // Write writes bytes to the active stream.
 func (c *CimFsWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
 	if c.activeStream == 0 {
 		return 0, fmt.Errorf("no active stream")
 	}

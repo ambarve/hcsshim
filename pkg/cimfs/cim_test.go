@@ -5,6 +5,8 @@ package cimfs
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
@@ -476,5 +478,75 @@ func TestMergedBlockCIMs(rootT *testing.T) {
 			// show up
 			compareContent(t, mountvol, []tuple{testContents[0][0], testContents[1][0]})
 		})
+	}
+}
+
+// This test creates a cim, writes some files to it and then reads those files back
+// without mounting the CIM by using the CimReadFile API
+func TestCimReadFileWithoutMounting(t *testing.T) {
+	if !IsBlockedCimSupported() {
+		t.Skip("CimReadFile not supported on this OS version")
+	}
+
+	root := t.TempDir()
+	testCIM := &testBlockCIM{
+		BlockCIM: BlockCIM{
+			Type:      BlockCIMTypeSingleFile,
+			BlockPath: filepath.Join(root, "layer.bcim"),
+			CimName:   "layer.cim",
+		},
+	}
+
+	// create test content with different file sizes right now, data will be populated
+	// later
+	testContents := []tuple{
+		{"a.txt", make([]byte, 0), false},   // empty file
+		{"b.txt", make([]byte, 1), false},   // file with size 1
+		{"c.txt", make([]byte, 511), false}, // file with size 511 (< buffer size)
+		{"d.txt", make([]byte, 512), false}, // file with size 512 (= buffer size)
+		{"e.txt", make([]byte, 513), false}, // file with size 513 (> buffer size)
+		{"foo", make([]byte, 0), true},
+		{"foo/a.txt", make([]byte, 512*3-1), false}, // random size
+		{"foo/b.txt", make([]byte, 512*3), false},   // random size
+		{"foo/c.txt", make([]byte, 512*3+1), false}, // random size
+	}
+
+	for _, tc := range testContents {
+		if tc.isDir {
+			continue
+		}
+		n, err := rand.Read(tc.fileContents)
+		if n != len(tc.fileContents) {
+			t.Fatalf("short read in random bytes")
+		} else if err != nil {
+			t.Fatalf("failed to generate random byte for file: %s", err)
+		}
+	}
+
+	writer := openNewCIM(t, testCIM)
+	writeCIM(t, writer, testContents)
+
+	for _, tc := range testContents {
+		if tc.isDir {
+			continue
+		}
+
+		_, err := CIMStatFile(context.Background(), filepath.FromSlash(tc.filepath), &testCIM.BlockCIM)
+		if err != nil {
+			t.Fatalf("failed to stat file: %s", err)
+		}
+
+		r, err := GetCIMFileReader(context.Background(), filepath.FromSlash(tc.filepath), &testCIM.BlockCIM)
+		if err != nil {
+			t.Fatalf("failed to get cim file reader: %s", err)
+		}
+		rbytes, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatalf("failed to read file from the CIM: %s", err)
+		}
+
+		if !bytes.Equal(rbytes, tc.fileContents) {
+			t.Fatalf("contents of file `%s` don't match", tc.filepath)
+		}
 	}
 }

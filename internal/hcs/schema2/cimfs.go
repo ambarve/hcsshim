@@ -27,6 +27,12 @@ const (
 	CimMergeFlagNone        uint32 = 0x0
 	CimMergeFlagSingleFile  uint32 = 0x1
 	CimMergeFlagBlockDevice uint32 = 0x2
+
+	CimReadFileFlagNone          uint32 = 0x0
+	CimReadFileFlagSingleFileCIM uint32 = 0x1
+
+	CimStatFileFlagNone          uint32 = 0x0
+	CimStatFileFlagSingleFileCIM uint32 = 0x1
 )
 
 type CimMount struct {

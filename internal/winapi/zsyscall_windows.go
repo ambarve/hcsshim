@@ -65,8 +65,10 @@ var (
 	procCimCreateImage2                        = modcimfs.NewProc("CimCreateImage2")
 	procCimDeletePath                          = modcimfs.NewProc("CimDeletePath")
 	procCimDismountImage                       = modcimfs.NewProc("CimDismountImage")
+	procCimGetFileStatBasicInformation2        = modcimfs.NewProc("CimGetFileStatBasicInformation2")
 	procCimMergeMountImage                     = modcimfs.NewProc("CimMergeMountImage")
 	procCimMountImage                          = modcimfs.NewProc("CimMountImage")
+	procCimReadFile2                           = modcimfs.NewProc("CimReadFile2")
 	procCimWriteStream                         = modcimfs.NewProc("CimWriteStream")
 	procSetJobCompartmentId                    = modiphlpapi.NewProc("SetJobCompartmentId")
 	procClosePseudoConsole                     = modkernel32.NewProc("ClosePseudoConsole")
@@ -432,6 +434,35 @@ func CimDismountImage(volumeID *g) (hr error) {
 	return
 }
 
+func CimGetFileStatBasicInformation2(imagePath string, filePath string, info *FileStatBasicInformation, flags uint32) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(filePath)
+	if hr != nil {
+		return
+	}
+	return _CimGetFileStatBasicInformation2(_p0, _p1, info, flags)
+}
+
+func _CimGetFileStatBasicInformation2(imagePath *uint16, filePath *uint16, info *FileStatBasicInformation, flags uint32) (hr error) {
+	hr = procCimGetFileStatBasicInformation2.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimGetFileStatBasicInformation2.Addr(), uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(filePath)), uintptr(unsafe.Pointer(info)), uintptr(flags))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
 func CimMergeMountImage(numCimPaths uint32, backingImagePaths *CimFsImagePath, flags uint32, volumeID *g) (hr error) {
 	hr = procCimMergeMountImage.Find()
 	if hr != nil {
@@ -467,6 +498,35 @@ func _CimMountImage(imagePath *uint16, fsName *uint16, flags uint32, volumeID *g
 		return
 	}
 	r0, _, _ := syscall.SyscallN(procCimMountImage.Addr(), uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(fsName)), uintptr(flags), uintptr(unsafe.Pointer(volumeID)))
+	if int32(r0) < 0 {
+		if r0&0x1fff0000 == 0x00070000 {
+			r0 &= 0xffff
+		}
+		hr = syscall.Errno(r0)
+	}
+	return
+}
+
+func CimReadFile2(imagePath string, filePath string, offset uint64, buffer unsafe.Pointer, bufferSize uint64, bytesRead *uint64, bytesRemaining *uint64, flags uint32) (hr error) {
+	var _p0 *uint16
+	_p0, hr = syscall.UTF16PtrFromString(imagePath)
+	if hr != nil {
+		return
+	}
+	var _p1 *uint16
+	_p1, hr = syscall.UTF16PtrFromString(filePath)
+	if hr != nil {
+		return
+	}
+	return _CimReadFile2(_p0, _p1, offset, buffer, bufferSize, bytesRead, bytesRemaining, flags)
+}
+
+func _CimReadFile2(imagePath *uint16, filePath *uint16, offset uint64, buffer unsafe.Pointer, bufferSize uint64, bytesRead *uint64, bytesRemaining *uint64, flags uint32) (hr error) {
+	hr = procCimReadFile2.Find()
+	if hr != nil {
+		return
+	}
+	r0, _, _ := syscall.SyscallN(procCimReadFile2.Addr(), uintptr(unsafe.Pointer(imagePath)), uintptr(unsafe.Pointer(filePath)), uintptr(offset), uintptr(buffer), uintptr(bufferSize), uintptr(unsafe.Pointer(bytesRead)), uintptr(unsafe.Pointer(bytesRemaining)), uintptr(flags))
 	if int32(r0) < 0 {
 		if r0&0x1fff0000 == 0x00070000 {
 			r0 &= 0xffff
