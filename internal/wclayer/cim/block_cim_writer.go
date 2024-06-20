@@ -5,13 +5,19 @@ package cim
 import (
 	"context"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/Microsoft/go-winio"
 	"github.com/Microsoft/hcsshim/internal/log"
 	"github.com/Microsoft/hcsshim/internal/oc"
 	"github.com/Microsoft/hcsshim/pkg/cimfs"
 	"github.com/sirupsen/logrus"
 	"go.opencensus.io/trace"
+	"golang.org/x/sys/windows"
 )
 
 // A BlockCIMLayerWriter implements the wclayer.LayerWriter interface to allow writing container
@@ -22,6 +28,11 @@ type BlockCIMLayerWriter struct {
 	layer *cimfs.BlockCIM
 	// parent layers
 	parentLayers []*cimfs.BlockCIM
+	// record of all files added so far
+	// only added temporarily while we wait for cross layer hard link support
+	addedFiles map[string]bool
+	// files to delete
+	deletedFiles map[string]bool
 }
 
 var _ CIMLayerWriter = &BlockCIMLayerWriter{}
@@ -79,6 +90,8 @@ func NewBlockCIMLayerWriter(ctx context.Context, layer *cimfs.BlockCIM, parentLa
 	return &BlockCIMLayerWriter{
 		layer:        layer,
 		parentLayers: parentLayers,
+		addedFiles:   make(map[string]bool),
+		deletedFiles: make(map[string]bool),
 		cimLayerWriter: &cimLayerWriter{
 			ctx:              ctx,
 			cimWriter:        cim,
@@ -89,14 +102,125 @@ func NewBlockCIMLayerWriter(ctx context.Context, layer *cimfs.BlockCIM, parentLa
 	}, nil
 }
 
+// Add adds a file to the layer with given metadata.
+func (cw *BlockCIMLayerWriter) Add(name string, fileInfo *winio.FileBasicInfo, fileSize int64, securityDescriptor []byte, extendedAttributes []byte, reparseData []byte) error {
+	if err := cw.cimLayerWriter.Add(name, fileInfo, fileSize, securityDescriptor, extendedAttributes, reparseData); err != nil {
+		return err
+	}
+	cw.addedFiles[name] = true
+	return nil
+}
+
+// AddLink adds a hard link to the layer. The target must already have been added.
+func (cw *BlockCIMLayerWriter) AddLink(name string, target string) error {
+	if ok := cw.addedFiles[target]; !ok {
+		// pull up the file
+		if err := cw.fetchFromParentLayers(target); err != nil {
+			return fmt.Errorf("failed to fetch link target: %w", err)
+		}
+	}
+	if err := cw.cimLayerWriter.AddLink(name, target); err != nil {
+		return err
+	}
+	cw.addedFiles[name] = true
+	return nil
+}
+
 // Remove removes a file that was present in a parent layer from the layer.
 func (cw *BlockCIMLayerWriter) Remove(name string) error {
 	// set active write to nil so that we panic if layer tar is incorrectly formatted.
 	cw.activeWriter = nil
 	// TODO(ambarve): ensure that blocked CIMs support storing tombstones here
-	err := cw.cimWriter.Unlink(name)
-	if err != nil {
-		return fmt.Errorf("failed to remove file : %w", err)
+	cw.deletedFiles[name] = true
+	return nil
+}
+
+// fetchFromParentLayers looks for the file with `path` in all parent layers one by one and
+// if such a file is found, it is added to the layer that this writer is writing
+func (cw *BlockCIMLayerWriter) fetchFromParentLayers(path string) error {
+	found := false
+	for _, c := range cw.parentLayers {
+		fileStats, err := cimfs.CIMStatFile(cw.ctx, path, c)
+		if err != nil {
+			log.G(cw.ctx).WithFields(logrus.Fields{
+				"file path": path,
+				"cim":       c,
+				"error":     err,
+			}).Debug("failed to stat file")
+			continue
+		}
+
+		// file was found, we need to add it to current CIM. However, parent
+		// directories of this file may not be present in the current CIM. Add them
+		// one by one
+		pathElements := strings.Split(path, string(filepath.Separator))
+		currPath := ""
+		for i := 0; i < len(pathElements)-1; i++ {
+			currPath = filepath.Join(currPath, pathElements[i])
+
+			fileBasicInfo := &winio.FileBasicInfo{
+				CreationTime:   windows.NsecToFiletime(time.Now().UnixNano()),
+				LastAccessTime: windows.NsecToFiletime(time.Now().UnixNano()),
+				LastWriteTime:  windows.NsecToFiletime(time.Now().UnixNano()),
+				ChangeTime:     windows.NsecToFiletime(time.Now().UnixNano()),
+				FileAttributes: windows.FILE_ATTRIBUTE_DIRECTORY,
+			}
+
+			if err := cw.Add(currPath, fileBasicInfo, 0, nil, nil, nil); err != nil {
+				return fmt.Errorf("failed to add parent dir: %w", err)
+			}
+		}
+
+		fileBasicInfo := &winio.FileBasicInfo{
+			CreationTime:   windows.NsecToFiletime(time.Now().UnixNano()),
+			LastAccessTime: windows.NsecToFiletime(time.Now().UnixNano()),
+			LastWriteTime:  windows.NsecToFiletime(time.Now().UnixNano()),
+			ChangeTime:     windows.NsecToFiletime(time.Now().UnixNano()),
+		}
+
+		if err := cw.Add(path, fileBasicInfo, fileStats.EndOfFile, nil, nil, nil); err != nil {
+			return fmt.Errorf("failed to add file: %w", err)
+		}
+
+		targetReader, err := cimfs.GetCIMFileReader(cw.ctx, path, c)
+		if err != nil {
+			return fmt.Errorf("failed to get reader: %w", err)
+		}
+		if _, err = io.Copy(cw, targetReader); err != nil {
+			return fmt.Errorf("failed to write file: %w", err)
+		}
+
+		found = true
+		break
+	}
+	if !found {
+		return fmt.Errorf("couldn't find file %s in parent layers: %w", path, os.ErrNotExist)
 	}
 	return nil
+}
+
+// Close finishes the layer writing process and releases any resources.
+func (cw *BlockCIMLayerWriter) Close(ctx context.Context) error {
+
+	parentWriters := []*cimfs.CimFsWriter{}
+	for _, c := range cw.parentLayers {
+		w, err := cimfs.CreateBlockCIM(c.BlockPath, c.CimName, "", c.Type)
+		if err != nil {
+			return fmt.Errorf("failed to open parent layer: %w", err)
+		}
+		parentWriters = append(parentWriters, w)
+	}
+
+	for df := range cw.deletedFiles {
+		cw.cimWriter.Unlink(df)
+		for _, pw := range parentWriters {
+			pw.Unlink(df)
+		}
+	}
+
+	for _, pw := range parentWriters {
+		pw.Close()
+	}
+
+	return cw.cimLayerWriter.Close(ctx)
 }
