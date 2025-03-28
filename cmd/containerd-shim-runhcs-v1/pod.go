@@ -128,11 +128,15 @@ func createPod(ctx context.Context, events publisher, req *task.CreateTaskReques
 				layerFolders = s.Windows.LayerFolders
 			}
 			wopts := (opts).(*uvm.OptionsWCOW)
-			wopts.BootFiles, err = layers.GetWCOWUVMBootFilesFromLayers(ctx, req.Rootfs, layerFolders)
-			if err != nil {
-				return nil, err
+			if !wopts.SecurityPolicyEnabled {
+				// When security policy is enabled SpecToUVMCreateOpts
+				// above sets up the BootFiles, otherwise we get boot
+				// files from the rootfs/layerfolders passed to us.
+				wopts.BootFiles, err = layers.GetWCOWUVMBootFilesFromLayers(ctx, req.Rootfs, layerFolders)
+				if err != nil {
+					return nil, err
+				}
 			}
-
 			parent, err = uvm.CreateWCOW(ctx, wopts)
 			if err != nil {
 				return nil, err

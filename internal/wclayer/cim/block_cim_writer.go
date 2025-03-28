@@ -5,10 +5,15 @@ package cim
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/Microsoft/go-winio"
+	"github.com/Microsoft/hcsshim/ext4/tar2ext4"
 	"github.com/Microsoft/hcsshim/internal/log"
+	"github.com/Microsoft/hcsshim/internal/wclayer"
+	"github.com/Microsoft/hcsshim/osversion"
 	"github.com/Microsoft/hcsshim/pkg/cimfs"
 )
 
@@ -132,4 +137,48 @@ func (cw *BlockCIMLayerWriter) AddLink(name string, target string) error {
 	cw.pendingOps = append(cw.pendingOps, pendingCimOpFunc(pendingLinkOp))
 	return nil
 
+}
+
+func (cw *BlockCIMLayerWriter) Close(ctx context.Context) error {
+	processUtilityVM := false
+	if cw.hasUtilityVM {
+		uvmSoftwareHivePath := filepath.Join(cw.layerPath, wclayer.UtilityVMPath, wclayer.RegFilesPath, "SOFTWARE")
+		osvStr, err := getOsBuildNumberFromRegistry(uvmSoftwareHivePath)
+		if err != nil {
+			return fmt.Errorf("read os version string from UtilityVM SOFTWARE hive: %w", err)
+		}
+
+		osv, err := strconv.ParseUint(osvStr, 10, 16)
+		if err != nil {
+			return fmt.Errorf("parse os version string (%s): %w", osvStr, err)
+		}
+
+		// write this version to a file for future reference by the shim process
+		if err = wclayer.WriteLayerUvmBuildFile(cw.layerPath, uint16(osv)); err != nil {
+			return fmt.Errorf("write uvm build version: %w", err)
+		}
+
+		// TODO(ambarve): use the accurate OS version here.
+		// CIMFS for hyperV isolated is only supported after WS2025, processing
+		// UtilityVM layer lower builds will cause failures since those images
+		// won't have CIMFS specific UVM files (mostly BCD entries required for
+		// CIMFS)
+		processUtilityVM = (osv >= osversion.LTSC2025)
+		log.G(ctx).Debugf("import image os version %d, processing UtilityVM layer: %t\n", osv, processUtilityVM)
+	}
+	if err := cw.cimLayerWriter.Close(ctx, processUtilityVM); err != nil {
+		return fmt.Errorf("failed to close cim layer writer: %w", err)
+	}
+	// append footer only after all writers are closed
+
+	blockFile, err := os.OpenFile(cw.layer.BlockPath, os.O_WRONLY, 0777)
+	if err != nil {
+		return fmt.Errorf("failed to open block CIM to append VHD footer: %w", err)
+	}
+	defer blockFile.Close()
+
+	if err := tar2ext4.ConvertToVhd(blockFile); err != nil {
+		return fmt.Errorf("failed to append VHD footer: %w", err)
+	}
+	return nil
 }

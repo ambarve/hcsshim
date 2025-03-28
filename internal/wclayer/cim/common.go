@@ -169,7 +169,7 @@ func (cw *cimLayerWriter) Write(b []byte) (int, error) {
 }
 
 // Close finishes the layer writing process and releases any resources.
-func (cw *cimLayerWriter) Close(ctx context.Context) (retErr error) {
+func (cw *cimLayerWriter) Close(ctx context.Context, processUtilityVM bool) (retErr error) {
 	if err := cw.stdFileWriter.Close(ctx); err != nil {
 		return err
 	}
@@ -180,9 +180,6 @@ func (cw *cimLayerWriter) Close(ctx context.Context) (retErr error) {
 			retErr = err
 		}
 	}()
-
-	// We don't support running UtilityVM with CIM layers yet.
-	processUtilityVM := false
 
 	if len(cw.parentLayerPaths) == 0 {
 		if err := cw.processBaseLayer(ctx, processUtilityVM); err != nil {

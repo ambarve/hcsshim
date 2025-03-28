@@ -83,6 +83,41 @@ func NewDefaultOptionsWCOW(id, owner string) *OptionsWCOW {
 	}
 }
 
+// SetDefaultConfidentialWCOWBootConfig updates the given WCOW UVM creation options (with the
+// default values) so that the created UVM does a confidential boot.
+func SetDefaultConfidentialWCOWBootConfig(opts *OptionsWCOW) error {
+	selfDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path to shim directory: %w", err)
+	}
+
+	bootDir := filepath.Join(selfDir, "WindowsBootFiles", "confidential")
+	opts.GuestStateFilePath = filepath.Join(bootDir, "cwcow.vmgs")
+	opts.BootFiles = &WCOWBootFiles{
+		BootType: BlockCIMBoot,
+		BlockCIMFiles: &BlockCIMBootFiles{
+			BootCIMVHDPath: filepath.Join(bootDir, "boot.vhdx"),
+			EFIVHDPath:     filepath.Join(bootDir, "efi.vhdx"),
+			ScratchVHDPath: filepath.Join(bootDir, "scratch.vhdx"),
+		},
+	}
+	for _, path := range []string{
+		opts.GuestStateFilePath,
+		opts.BootFiles.BlockCIMFiles.BootCIMVHDPath,
+		opts.BootFiles.BlockCIMFiles.EFIVHDPath,
+		opts.BootFiles.BlockCIMFiles.ScratchVHDPath} {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("failed to stat boot file `%s` for confidential WCOW: %w", path, err)
+		}
+	}
+
+	//TODO(ambarve): for testing only remove later
+	opts.IsolationType = "GuestStateOnly"
+	opts.DisableSecureBoot = true
+	opts.ConsolePipe = "\\\\.\\pipe\\uvmpipe"
+	return nil
+}
+
 // startExternalGcsListener connects to the GCS service running inside the
 // UVM. gcsServiceID can either be the service ID of the default GCS that is present in
 // all UtilityVMs or it can be the service ID of the sidecar GCS that is used mostly in

@@ -13,9 +13,15 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+const defaultVHDXBlockSizeInMB = 1
+
 // processUtilityVMLayer will handle processing of UVM specific files when we start
 // supporting UVM based containers with CimFS in the future.
 func processUtilityVMLayer(ctx context.Context, layerPath string) error {
+	// TODO(ambarve):
+	// 1. create a scratch VHD
+	// 2. create a diff scratch VHD
+	// 3. create an EFI partition VHD for boot
 	return nil
 }
 

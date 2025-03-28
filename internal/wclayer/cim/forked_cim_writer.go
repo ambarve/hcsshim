@@ -76,3 +76,9 @@ func (cw *ForkedCimLayerWriter) Remove(name string) error {
 	}
 	return fmt.Errorf("failed to remove file: %w", err)
 }
+
+// Close finishes the layer writing process and releases any resources.
+func (cw *ForkedCimLayerWriter) Close(ctx context.Context) error {
+	// we don't support running UVMs with forked CIM layers
+	return cw.cimLayerWriter.Close(ctx, false)
+}

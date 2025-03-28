@@ -5,6 +5,7 @@ package oci
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strconv"
 
@@ -188,10 +189,21 @@ func handleAnnotationFullyPhysicallyBacked(ctx context.Context, a map[string]str
 	}
 }
 
-// handleSecurityPolicy handles parsing SecurityPolicy and NoSecurityHardware and setting
+// handleWCOWSecurityPolicy handles parsing SecurityPolicy for confidential hyper-v isolated windows containers
+func handleWCOWSecurityPolicy(ctx context.Context, a map[string]string, wopts *uvm.OptionsWCOW) error {
+	wopts.SecurityPolicy = ParseAnnotationsString(a, annotations.WCOWSecurityPolicy, wopts.SecurityPolicy)
+	wopts.SecurityPolicyEnforcer = ParseAnnotationsString(a, annotations.WCOWSecurityPolicyEnforcer, wopts.SecurityPolicyEnforcer)
+	if len(wopts.SecurityPolicy) > 0 {
+		wopts.SecurityPolicyEnabled = true
+		return uvm.SetDefaultConfidentialWCOWBootConfig(wopts)
+	}
+	return nil
+}
+
+// handleLCOWSecurityPolicy handles parsing SecurityPolicy and NoSecurityHardware and setting
 // implied options from the results. Both LCOW only, not WCOW.
-func handleSecurityPolicy(ctx context.Context, a map[string]string, lopts *uvm.OptionsLCOW) {
-	lopts.SecurityPolicy = ParseAnnotationsString(a, annotations.SecurityPolicy, lopts.SecurityPolicy)
+func handleLCOWSecurityPolicy(ctx context.Context, a map[string]string, lopts *uvm.OptionsLCOW) {
+	lopts.SecurityPolicy = ParseAnnotationsString(a, annotations.LCOWSecurityPolicy, lopts.SecurityPolicy)
 	// allow actual isolated boot etc to be ignored if we have no hardware. Required for dev
 	// this is not a security issue as the attestation will fail without a genuine report
 	noSecurityHardware := ParseAnnotationsBool(ctx, a, annotations.NoSecurityHardware, false)
@@ -307,8 +319,8 @@ func SpecToUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner string) (
 		lopts.ExtraVSockPorts = ParseAnnotationCommaSeparatedUint32(ctx, s.Annotations, iannotations.ExtraVSockPorts, lopts.ExtraVSockPorts)
 		handleAnnotationBootFilesPath(ctx, s.Annotations, lopts)
 		lopts.EnableScratchEncryption = ParseAnnotationsBool(ctx, s.Annotations, annotations.EncryptedScratchDisk, lopts.EnableScratchEncryption)
-		lopts.SecurityPolicy = ParseAnnotationsString(s.Annotations, annotations.SecurityPolicy, lopts.SecurityPolicy)
-		lopts.SecurityPolicyEnforcer = ParseAnnotationsString(s.Annotations, annotations.SecurityPolicyEnforcer, lopts.SecurityPolicyEnforcer)
+		lopts.SecurityPolicy = ParseAnnotationsString(s.Annotations, annotations.LCOWSecurityPolicy, lopts.SecurityPolicy)
+		lopts.SecurityPolicyEnforcer = ParseAnnotationsString(s.Annotations, annotations.LCOWSecurityPolicyEnforcer, lopts.SecurityPolicyEnforcer)
 		lopts.UVMReferenceInfoFile = ParseAnnotationsString(s.Annotations, annotations.UVMReferenceInfoFile, lopts.UVMReferenceInfoFile)
 		lopts.KernelBootOptions = ParseAnnotationsString(s.Annotations, annotations.KernelBootOptions, lopts.KernelBootOptions)
 		lopts.DisableTimeSyncService = ParseAnnotationsBool(ctx, s.Annotations, annotations.DisableLCOWTimeSyncService, lopts.DisableTimeSyncService)
@@ -319,7 +331,7 @@ func SpecToUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner string) (
 
 		// SecurityPolicy is very sensitive to other settings and will silently change those that are incompatible.
 		// Eg VMPem device count, overridden kernel option cannot be respected.
-		handleSecurityPolicy(ctx, s.Annotations, lopts)
+		handleLCOWSecurityPolicy(ctx, s.Annotations, lopts)
 
 		// override the default GuestState and DmVerityRootFs filenames if specified
 		lopts.GuestStateFile = ParseAnnotationsString(s.Annotations, annotations.GuestStateFile, lopts.GuestStateFile)
@@ -342,6 +354,9 @@ func SpecToUVMCreateOpts(ctx context.Context, s *specs.Spec, id, owner string) (
 		wopts.NoInheritHostTimezone = ParseAnnotationsBool(ctx, s.Annotations, annotations.NoInheritHostTimezone, wopts.NoInheritHostTimezone)
 		wopts.AdditionalRegistryKeys = append(wopts.AdditionalRegistryKeys, parseAdditionalRegistryValues(ctx, s.Annotations)...)
 		handleAnnotationFullyPhysicallyBacked(ctx, s.Annotations, wopts)
+		if err := handleWCOWSecurityPolicy(ctx, s.Annotations, wopts); err != nil {
+			return nil, fmt.Errorf("failed to process WCOW security policy: %w", err)
+		}
 		return wopts, nil
 	}
 	return nil, errors.New("cannot create UVM opts spec is not LCOW or WCOW")

@@ -9,9 +9,18 @@
 
 package hcsschema
 
+import "github.com/Microsoft/go-winio/pkg/guid"
+
 type CimMount struct {
 	ImagePath      string `json:"ImagePath,omitempty"`
 	FileSystemName string `json:"FileSystemName,omitempty"`
 	VolumeGuid     string `json:"VolumeGuid,omitempty"`
 	MountFlags     uint32 `json:"MountFlags,omitempty"`
+}
+
+type BlockCIMMount struct {
+	BlockLUNs  []uint32  `json:"BlockLUNs,omitempty"`
+	CimNames   []string  `json:"CimNames,omitempty"`
+	VolumeGuid guid.GUID `json:"VolumeGuid,omitempty"`
+	MountFlags uint32    `json:"MountFlags,omitempty"`
 }

@@ -221,12 +221,12 @@ const (
 	// should be encrypted or not.
 	EncryptedScratchDisk = "io.microsoft.virtualmachine.storage.scratch.encrypted"
 
-	// SecurityPolicy is used to specify a security policy for opengcs to enforce.
-	SecurityPolicy = "io.microsoft.virtualmachine.lcow.securitypolicy"
+	// LCOWSecurityPolicy is used to specify a security policy for opengcs to enforce.
+	LCOWSecurityPolicy = "io.microsoft.virtualmachine.lcow.securitypolicy"
 
-	// SecurityPolicyEnforcer is used to specify which enforcer to initialize (open-door, standard or rego).
+	// LCOWSecurityPolicyEnforcer is used to specify which enforcer to initialize (open-door, standard or rego).
 	// This allows for better fallback mechanics.
-	SecurityPolicyEnforcer = "io.microsoft.virtualmachine.lcow.enforcer"
+	LCOWSecurityPolicyEnforcer = "io.microsoft.virtualmachine.lcow.enforcer"
 
 	// WCOW SecurityPolicy is used to specify a security policy for opengcs to enforce.
 	WCOWSecurityPolicy = "io.microsoft.virtualmachine.wcow.securitypolicy"

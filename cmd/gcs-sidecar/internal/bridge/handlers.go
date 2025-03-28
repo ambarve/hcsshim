@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"path/filepath"
 	"time"
 
 	"github.com/Microsoft/hcsshim/cmd/gcs-sidecar/internal/windowssecuritypolicy"
@@ -353,10 +354,12 @@ func (b *Bridge) unmarshalModifySettingsAndForward(req *request) error {
 			}
 			log.Printf(", WCOWBlockCIMMounts { %v} \n", wcowBlockCimMounts)
 
-			var mergedCim cimfs.BlockCIM
-			var sourceCims []*cimfs.BlockCIM
+			// The block device takes some time to show up, temporary hack
+			time.Sleep(1 * time.Second)
+
+			var layerCIMs []*cimfs.BlockCIM
 			ctx := context.Background()
-			for i, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
+			for _, blockCimDevice := range wcowBlockCimMounts.BlockCIMs {
 				// Get the scsi device path for the blockCim lun
 				scsiDevPath, _, err := windevice.GetScsiDevicePathAndDiskNumberFromControllerLUN(
 					ctx,
@@ -366,30 +369,29 @@ func (b *Bridge) unmarshalModifySettingsAndForward(req *request) error {
 					log.Printf("err getting scsiDevPath: %v", r)
 					return err
 				}
-				if i == 0 {
-					// BlockCIMs should be ordered from merged CIM followed by Layer n .. layer 1
-					mergedCim = cimfs.BlockCIM{
-						Type:      cimfs.BlockCIMTypeDevice,
-						BlockPath: scsiDevPath,
-						CimName:   blockCimDevice.CimName,
-					}
-				} else {
-					layerCim := cimfs.BlockCIM{
-						Type:      cimfs.BlockCIMTypeDevice,
-						BlockPath: scsiDevPath,
-						CimName:   blockCimDevice.CimName,
-					}
-					sourceCims = append(sourceCims, &layerCim)
+				layerCim := cimfs.BlockCIM{
+					Type:      cimfs.BlockCIMTypeDevice,
+					BlockPath: scsiDevPath,
+					CimName:   blockCimDevice.CimName,
+				}
+				layerCIMs = append(layerCIMs, &layerCim)
+
+			}
+			if len(layerCIMs) > 1 {
+				// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
+				_, err := cimfs.MountMergedBlockCIMs(layerCIMs[0], layerCIMs[1:], wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
+				}
+			} else {
+				_, err := cimfs.Mount(filepath.Join(layerCIMs[0].BlockPath, layerCIMs[0].CimName), wcowBlockCimMounts.VolumeGuid, wcowBlockCimMounts.MountFlags)
+				if err != nil {
+					return fmt.Errorf("error mounting merged block cims: %v", err)
 				}
 			}
 
-			// Get the topmost merge CIM and invoke the MountMergedBlockCIMs
-			_, err := cimfs.MountMergedBlockCIMs(&mergedCim, sourceCims, wcowBlockCimMounts.MountFlags, wcowBlockCimMounts.VolumeGuid)
-			if err != nil {
-				return fmt.Errorf("error mounting merged block cims: %v", err)
-			}
 			// Send reply back to hcsshim
-			err = b.sendReplyToShim(rpcModifySettings, *req)
+			err := b.sendReplyToShim(rpcModifySettings, *req)
 			if err != nil {
 				log.Printf("error sending reply back to hcsshim from ResourceTypeWCOWBlockCims")
 				return fmt.Errorf("error sending reply back to hcsshim from ResourceTypeWCOWBlockCims: %v", err)
@@ -604,6 +606,7 @@ func (b *Bridge) modifySettings(req *request) error {
 
 	//skipSendToGCS := false
 	if err := b.unmarshalModifySettingsAndForward(req); err != nil {
+		log.Printf("unmarshalModifySettingsAndForward failed: %s\n", err)
 		return err
 	}
 

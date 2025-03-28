@@ -216,33 +216,7 @@ func ParseWCOWLayers(rootfs []*types.Mount, layerFolders []string) (WCOWLayers, 
 	}
 }
 
-// GetWCOWUVMBootFilesFromLayers prepares the UVM boot files from the rootfs or layerFolders.
-func GetWCOWUVMBootFilesFromLayers(ctx context.Context, rootfs []*types.Mount, layerFolders []string) (*uvm.WCOWBootFiles, error) {
-	var parentLayers []string
-	var scratchLayer string
-	var err error
-
-	if err = validateRootfsAndLayers(rootfs, layerFolders); err != nil {
-		return nil, err
-	}
-
-	if len(layerFolders) > 0 {
-		parentLayers = layerFolders[:len(layerFolders)-1]
-		scratchLayer = layerFolders[len(layerFolders)-1]
-	} else {
-		m := rootfs[0]
-		switch m.Type {
-		case legacyMountType:
-			parentLayers, err = getOptionAsArray(m, parentLayerPathsFlag)
-			if err != nil {
-				return nil, err
-			}
-			scratchLayer = m.Source
-		default:
-			return nil, fmt.Errorf("mount type '%s' is not supported for UVM boot", m.Type)
-		}
-	}
-
+func makeLegacyWCOWUVMBootFiles(ctx context.Context, scratchLayer string, parentLayers []string) (*uvm.WCOWBootFiles, error) {
 	uvmFolder, err := uvmfolder.LocateUVMFolder(ctx, parentLayers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to locate utility VM folder from layer folders: %w", err)
@@ -271,4 +245,33 @@ func GetWCOWUVMBootFilesFromLayers(ctx context.Context, rootfs []*types.Mount, l
 			ScratchVHDPath:        scratchVHDPath,
 		},
 	}, nil
+}
+
+// GetWCOWUVMBootFilesFromLayers prepares the UVM boot files from the rootfs or layerFolders.
+func GetWCOWUVMBootFilesFromLayers(ctx context.Context, rootfs []*types.Mount, layerFolders []string) (*uvm.WCOWBootFiles, error) {
+	var parentLayers []string
+	var scratchLayer string
+	var err error
+
+	if err = validateRootfsAndLayers(rootfs, layerFolders); err != nil {
+		return nil, err
+	}
+
+	if len(layerFolders) > 0 {
+		parentLayers = layerFolders[:len(layerFolders)-1]
+		scratchLayer = layerFolders[len(layerFolders)-1]
+		return makeLegacyWCOWUVMBootFiles(ctx, scratchLayer, parentLayers)
+	} else if rootfs[0].Type == legacyMountType {
+		parentLayers, err := getOptionAsArray(rootfs[0], parentLayerPathsFlag)
+		if err != nil {
+			return nil, err
+		}
+		return makeLegacyWCOWUVMBootFiles(ctx, rootfs[0].Source, parentLayers)
+	} else if rootfs[0].Type == blockCIMMountType {
+		return &uvm.WCOWBootFiles{
+			BootType:      uvm.BlockCIMBoot,
+			BlockCIMFiles: &uvm.BlockCIMBootFiles{},
+		}, nil
+	}
+	return nil, fmt.Errorf("mount type '%s' is not supported for UVM boot", rootfs[0].Type)
 }
