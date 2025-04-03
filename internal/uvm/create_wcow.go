@@ -96,9 +96,9 @@ func SetDefaultConfidentialWCOWBootConfig(opts *OptionsWCOW) error {
 	opts.BootFiles = &WCOWBootFiles{
 		BootType: BlockCIMBoot,
 		BlockCIMFiles: &BlockCIMBootFiles{
-			BootCIMVHDPath: filepath.Join(bootDir, "boot.vhdx"),
-			EFIVHDPath:     filepath.Join(bootDir, "efi.vhdx"),
-			ScratchVHDPath: filepath.Join(bootDir, "scratch.vhdx"),
+			BootCIMVHDPath: filepath.Join(bootDir, "rootfs.vhd"),
+			EFIVHDPath:     filepath.Join(bootDir, "boot.vhd"),
+			ScratchVHDPath: filepath.Join(bootDir, "scratch.vhd"),
 		},
 	}
 	for _, path := range []string{
