@@ -414,8 +414,9 @@ func prepareSecurityConfigDoc(ctx context.Context, uvm *UtilityVM, opts *Options
 		Type_: "VirtualDisk",
 	}
 	doc.VirtualMachine.Devices.Scsi[guestrequest.ScsiControllerGuids[0]].Attachments["1"] = hcsschema.Attachment{
-		Path:  opts.BootFiles.BlockCIMFiles.EFIVHDPath,
-		Type_: "VirtualDisk",
+		Path:     opts.BootFiles.BlockCIMFiles.EFIVHDPath,
+		Type_:    "VirtualDisk",
+		ReadOnly: true,
 	}
 	doc.VirtualMachine.Devices.Scsi[guestrequest.ScsiControllerGuids[0]].Attachments["2"] = hcsschema.Attachment{
 		Path:     opts.BootFiles.BlockCIMFiles.BootCIMVHDPath,
