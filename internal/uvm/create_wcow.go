@@ -429,6 +429,18 @@ func prepareSecurityConfigDoc(ctx context.Context, uvm *UtilityVM, opts *Options
 		scsi.Slot{Controller: 0, LUN: 1},
 		scsi.Slot{Controller: 0, LUN: 2})
 
+	vsmbOpts := &hcsschema.VirtualSmbShareOptions{
+		ReadOnly:  true,
+		ShareRead: true,
+		NoOplocks: true,
+	}
+
+	doc.VirtualMachine.Devices.VirtualSmb.Shares = []hcsschema.VirtualSmbShare{{
+		Name:    "hcsshare1",
+		Path:    "C:\\testdata",
+		Options: vsmbOpts,
+	}}
+
 	return doc, nil
 }
 
